@@ -54,6 +54,11 @@ class Settings(BaseSettings):
     # Length >= 32 chars is the only strength gate.
     PII_SALT: SecretStr
 
+    # LLM providers. Anthropic is required at runtime (kb.consult, brain);
+    # the Settings default of "" lets tests and local imports load without
+    # a key. Jobs that actually call the LLM surface AnthropicKeyMissing.
+    ANTHROPIC_API_KEY: SecretStr = Field(default=SecretStr(""))
+
     LOG_LEVEL: str = "INFO"
     APP_VERSION: str = Field(default_factory=_resolve_app_version)
     DB_POOL_MIN_SIZE: int = 2
