@@ -23,10 +23,13 @@ from agent_runtime.jobs import (
     budget_guard,
     form_checker,
     impact_tracker_job,
+    learner,
     query_analyzer,
+    regression_watch,
     shadow_monitor,
     smart_optimizer,
     strategy_gate,
+    telegram_digest,
     watchdog,
 )
 
@@ -41,11 +44,14 @@ JOB_REGISTRY: dict[str, JobCallable] = {
     "budget_guard": budget_guard.run,
     "form_checker": form_checker.run,
     "impact_tracker": impact_tracker_job.run,
+    "learner": learner.run,
     "lead_poller": bfl_rf_lead_poller.run,
     "query_analyzer": query_analyzer.run,
+    "regression_watch": regression_watch.run,
     "shadow_monitor": shadow_monitor.run,
     "smart_optimizer": smart_optimizer.run,
     "strategy_gate": strategy_gate.run,
+    "telegram_digest": telegram_digest.run,
     "watchdog": watchdog.run,
 }
 

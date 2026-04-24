@@ -59,6 +59,43 @@ curl -fsS --max-time 60 -X POST \
   "$RAILWAY_PUBLIC_URL/run/watchdog?dry_run=false"
 """
 
+# telegram_digest — Task 23, daily 09:00 МСК (06:00 UTC). Rolling 24h
+# digest of actions/hypotheses/asks + empty-state "Тихая ночь" footer.
+[[cron]]
+name = "telegram_digest"
+schedule = "0 6 * * *"
+command = """
+curl -fsS --max-time 60 -X POST \
+  -H "Authorization: Bearer $SDA_INTERNAL_API_KEY" \
+  "$RAILWAY_PUBLIC_URL/run/telegram_digest?dry_run=false"
+"""
+
+# learner — Task 25, weekly Fri 12:00 МСК (09:00 UTC). EMA (default) or
+# Bayesian threshold updater over past 7d confirmed/rejected hypotheses.
+# Writes sda_state[learned_thresholds] for decision_engine + kill_switches
+# overlay consumption.
+[[cron]]
+name = "learner"
+schedule = "0 9 * * 5"
+command = """
+curl -fsS --max-time 60 -X POST \
+  -H "Authorization: Bearer $SDA_INTERNAL_API_KEY" \
+  "$RAILWAY_PUBLIC_URL/run/learner?dry_run=false"
+"""
+
+# regression_watch — Task 27, daily 11:00 МСК (08:00 UTC). For each
+# state='confirmed' hypothesis with baseline_at_promote, re-measure vs
+# baseline; hard verdict → rollback via impact_tracker (autonomous) or
+# critical Telegram (shadow/assisted).
+[[cron]]
+name = "regression_watch"
+schedule = "0 8 * * *"
+command = """
+curl -fsS --max-time 60 -X POST \
+  -H "Authorization: Bearer $SDA_INTERNAL_API_KEY" \
+  "$RAILWAY_PUBLIC_URL/run/regression_watch?dry_run=false"
+"""
+
 # smart_optimizer — Task 18, every 4 hours. Full ReAct loop: signals →
 # brain.reason → kill_switches → record_hypothesis → execute per trust overlay.
 [[cron]]
