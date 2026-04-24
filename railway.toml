@@ -36,3 +36,14 @@ curl -fsS -X POST \
   -H "Authorization: Bearer $SDA_INTERNAL_API_KEY" \
   "$RAILWAY_PUBLIC_URL/run/audit_retention?dry_run=false"
 """
+
+# impact_tracker — Task 12b, every 6 hours. Measures running hypotheses,
+# expires runaway rows, releases free budget to waiting hypotheses.
+[[cron]]
+name = "impact_tracker"
+schedule = "0 */6 * * *"  # every 6 hours
+command = """
+curl -fsS -X POST \
+  -H "Authorization: Bearer $SDA_INTERNAL_API_KEY" \
+  "$RAILWAY_PUBLIC_URL/run/impact_tracker?dry_run=false"
+"""

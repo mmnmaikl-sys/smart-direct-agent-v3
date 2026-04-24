@@ -13,12 +13,13 @@ from typing import Any
 
 from psycopg_pool import AsyncConnectionPool
 
-from agent_runtime.jobs import audit_retention
+from agent_runtime.jobs import audit_retention, impact_tracker_job
 
 JobCallable = Callable[..., Awaitable[dict[str, Any]]]
 
 JOB_REGISTRY: dict[str, JobCallable] = {
     "audit_retention": audit_retention.run,
+    "impact_tracker": impact_tracker_job.run,
 }
 
 
