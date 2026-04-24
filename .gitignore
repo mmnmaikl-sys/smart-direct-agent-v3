@@ -47,6 +47,15 @@ coverage.xml
 *.log
 logs/
 
+# Secrets (SDA v3: Direct/Bitrix/Metrika tokens, HMAC keys, etc.)
+*.key
+*.pem
+*.p12
+*.pfx
+credentials.json
+secrets/
+*.secret
+
 # Railway
 .railway/
 
