@@ -1,0 +1,20 @@
+# Railway configuration for smart-direct-agent-v3.
+#
+# Deploy runs only via GitHub Actions (.github/workflows/deploy.yml) — see Decision 10
+# + README WARNING. Local `railway up` is forbidden.
+#
+# Cron schedules for scheduled jobs (watchdog, smart_optimizer, tg_digest, etc.)
+# are added as separate services in subsequent tasks (13, 17, 18, 23, 27).
+# Min interval = 5 minutes per Railway Cron docs. In-process loops (lead_poller)
+# run inside the main service, not as cron (Decision 9).
+
+[build]
+builder = "NIXPACKS"
+
+[deploy]
+# healthcheckPath points to /health endpoint created in Task 5 (FastAPI skeleton).
+# Until then the service returns 404 on /, which is expected.
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
