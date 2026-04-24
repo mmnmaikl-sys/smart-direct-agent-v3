@@ -48,6 +48,17 @@ def test_blocks_sys_path_insert(tmp_path: Path) -> None:
     assert "BLOCKED" in result.stdout + result.stderr
 
 
+def test_blocks_sys_path_insert_single_quotes(tmp_path: Path) -> None:
+    """Regression test: reviewer caught POSIX ERE `\\x27` escape did not work in bash.
+
+    Single-quoted path `sys.path.insert(0, '/tmp/sda-v2')` must also be blocked.
+    """
+    content = "import sys\nsys.path.insert(0, '/tmp/sda-v2')\nfrom sda_v2 import tools\n"
+    result = _run_hook(tmp_path, content)
+    assert result.returncode != 0
+    assert "BLOCKED" in result.stdout + result.stderr
+
+
 def test_allows_clean_code(tmp_path: Path) -> None:
     result = _run_hook(tmp_path, "from agent_runtime.brain import reason\n")
     assert (
