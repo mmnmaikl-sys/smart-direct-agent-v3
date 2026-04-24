@@ -59,6 +59,18 @@ curl -fsS --max-time 60 -X POST \
   "$RAILWAY_PUBLIC_URL/run/watchdog?dry_run=false"
 """
 
+# shadow_monitor — Task 16b, every 5 min. Last-line contingency: detects any
+# is_mutation=TRUE + trust_level='shadow' rows in audit_log. On violation →
+# CRITICAL Telegram + FORBIDDEN_LOCK. No-op outside shadow trust.
+[[cron]]
+name = "shadow_monitor"
+schedule = "*/5 * * * *"
+command = """
+curl -fsS --max-time 60 -X POST \
+  -H "Authorization: Bearer $SDA_INTERNAL_API_KEY" \
+  "$RAILWAY_PUBLIC_URL/run/shadow_monitor?dry_run=false"
+"""
+
 # form_checker — Task 15, daily 07:00 МСК (04:00 UTC). Health-checks landing
 # pages + CORS + /lead endpoint + ad moderation; in shadow NOTIFY only.
 [[cron]]

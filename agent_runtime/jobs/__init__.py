@@ -19,6 +19,7 @@ from agent_runtime.jobs import (
     budget_guard,
     form_checker,
     impact_tracker_job,
+    shadow_monitor,
     watchdog,
 )
 
@@ -30,6 +31,7 @@ JOB_REGISTRY: dict[str, JobCallable] = {
     "form_checker": form_checker.run,
     "impact_tracker": impact_tracker_job.run,
     "lead_poller": bfl_rf_lead_poller.run,
+    "shadow_monitor": shadow_monitor.run,
     "watchdog": watchdog.run,
 }
 
