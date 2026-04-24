@@ -34,7 +34,7 @@ from typing import Any
 
 from agents_core.llm.client import LLMClient
 from agents_core.loop.react import MaxStepsExceededError, ReActLoop
-from agents_core.tools.registry import ToolRegistry
+from agents_core.tools.registry import Tier, ToolRegistry
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -153,7 +153,7 @@ async def build_system_prompt(
     )
 
 
-def _tier_filter_for(trust_level: str) -> list[str]:
+def _tier_filter_for(trust_level: str) -> list[Tier]:
     if trust_level == "autonomous":
         return ["read", "write", "danger"]
     # shadow / assisted / anything unknown → no danger tools
