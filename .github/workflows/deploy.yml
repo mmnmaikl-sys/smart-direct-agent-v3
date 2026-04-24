@@ -1,58 +1,86 @@
 name: Deploy to Railway
 
+# Manual trigger only: prevents accidental deploys on every push to main and
+# false-positive failures before RAILWAY_TOKEN + Railway service exist (Task 4).
+# Run via: gh workflow run deploy.yml --ref main  OR Actions UI → Run workflow.
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type 'deploy' to confirm — prevents accidental UI clicks"
+        required: true
+        default: ""
 
 permissions:
   contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
 
 env:
   PYTHON_VERSION: "3.12"
 
 jobs:
+  gate:
+    name: Input gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Validate confirm input
+        run: |
+          if [ "${{ inputs.confirm }}" != "deploy" ]; then
+            echo "Refusing to run: 'confirm' must be 'deploy' (got '${{ inputs.confirm }}')"
+            exit 1
+          fi
+
   build:
     name: Build + verify hashes
     runs-on: ubuntu-latest
+    needs: gate
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - name: Verify requirements.lock hashes
+          cache: "pip"
+      - name: Verify requirements.lock hashes (production deps)
         run: |
-          if [ ! -f requirements.lock ]; then
-            echo "requirements.lock not found — generate via pip-compile --generate-hashes"
-            exit 1
-          fi
+          test -f requirements.lock
           pip install --require-hashes -r requirements.lock
-      - name: pytest (final check before deploy)
-        run: pip install -e ".[dev]" && pytest -v
+      - name: Install agents-core + project (no deps, hashed base already installed)
+        run: pip install --no-deps -e .
+      - name: pytest (final sanity check)
+        run: pip install --no-deps pytest pytest-asyncio pytest-mock pytest-cov && pytest -v tests/unit/
 
   deploy:
     name: Deploy to Railway
     runs-on: ubuntu-latest
     needs: build
+    timeout-minutes: 15
     environment:
       name: production
       url: https://smart-direct-agent-v3-production.up.railway.app
     steps:
       - uses: actions/checkout@v4
-      - name: Install Railway CLI
-        run: curl -fsSL https://railway.app/install.sh | sh
+      - name: Install Railway CLI (pinned version)
+        run: |
+          RAILWAY_VERSION="4.10.0"
+          curl -fsSL "https://github.com/railwayapp/cli/releases/download/v${RAILWAY_VERSION}/railway-v${RAILWAY_VERSION}-x86_64-unknown-linux-gnu.tar.gz" -o /tmp/railway.tar.gz
+          tar -xzf /tmp/railway.tar.gz -C /tmp
+          sudo mv /tmp/railway /usr/local/bin/railway
+          railway --version
       - name: Deploy
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-        run: |
-          railway up --service smart-direct-agent-v3 --detach
-      - name: Wait for deployment
-        run: sleep 30
+        run: railway up --service smart-direct-agent-v3 --detach
 
   smoke:
     name: Post-deploy smoke test
     runs-on: ubuntu-latest
     needs: deploy
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - name: Run smoke_test.sh
