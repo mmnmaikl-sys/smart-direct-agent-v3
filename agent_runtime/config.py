@@ -64,6 +64,18 @@ class Settings(BaseSettings):
     YANDEX_DIRECT_TOKEN: SecretStr = Field(default=SecretStr(""))
     YANDEX_DIRECT_BASE_URL: str = "https://api.direct.yandex.com/json/v5"
 
+    # Bitrix24 REST webhook. URL includes the user id (full-scope); token is
+    # the trailing segment — kept separately for `validate_webhook_token`.
+    BITRIX_WEBHOOK_URL: str = ""  # e.g. https://x.bitrix24.ru/rest/1/TOKEN/
+    BITRIX_WEBHOOK_TOKEN: SecretStr = Field(default=SecretStr(""))
+
+    # Yandex.Metrika stat/v1 API.
+    METRIKA_OAUTH_TOKEN: SecretStr = Field(default=SecretStr(""))
+
+    # Telegram Bot API — single bot, owner's DM.
+    TELEGRAM_BOT_TOKEN: SecretStr = Field(default=SecretStr(""))
+    TELEGRAM_CHAT_ID: int = 0
+
     LOG_LEVEL: str = "INFO"
     APP_VERSION: str = Field(default_factory=_resolve_app_version)
     DB_POOL_MIN_SIZE: int = 2

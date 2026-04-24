@@ -19,6 +19,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import httpx
 from agents_core.memory.reflection import PGReflectionStore
 from fastapi import Depends, FastAPI, Request, status
 from fastapi.responses import JSONResponse
@@ -54,6 +55,14 @@ def _make_lifespan(settings: Settings):
         app.state.agents_count = 0
         app.state.jobs_count = 0
 
+        # One shared httpx client for Bitrix / Metrika / Telegram tools.
+        # Connection pool kept modest — these endpoints rate-limit harder
+        # than they hang under concurrent load.
+        app.state.http_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(connect=5.0, read=60.0, write=10.0, pool=60.0),
+            limits=httpx.Limits(max_connections=20, max_keepalive_connections=5),
+        )
+
         reflection_store = PGReflectionStore(settings.DATABASE_URL)
         await reflection_store.ensure_schema()
         applied = await run_migrations(pool, MIGRATIONS_DIR)
@@ -65,8 +74,9 @@ def _make_lifespan(settings: Settings):
         try:
             yield
         finally:
+            await app.state.http_client.aclose()
             await pool.close()
-            logger.info("lifespan shutdown: pool closed")
+            logger.info("lifespan shutdown: http client + pool closed")
 
     return lifespan
 
