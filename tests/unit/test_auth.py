@@ -85,14 +85,14 @@ def test_startup_rejects_short_api_key() -> None:
 
 def test_bearer_required() -> None:
     with _app_client() as client:
-        r = client.post("/run/budget_guard")
+        r = client.post("/run/_test_only_stub")
     assert r.status_code == 401
     assert "API key" in r.json()["detail"]
 
 
 def test_bearer_invalid_returns_401() -> None:
     with _app_client() as client:
-        r = client.post("/run/budget_guard", headers={"Authorization": "Bearer wrong-token"})
+        r = client.post("/run/_test_only_stub", headers={"Authorization": "Bearer wrong-token"})
     assert r.status_code == 401
     # Neutral message — no oracle on missing-vs-wrong
     assert r.json()["detail"] == "Invalid or missing API key"
@@ -100,11 +100,13 @@ def test_bearer_invalid_returns_401() -> None:
 
 def test_bearer_valid_returns_200() -> None:
     with _app_client() as client:
-        r = client.post("/run/budget_guard", headers={"Authorization": f"Bearer {_INTERNAL_KEY}"})
+        r = client.post(
+            "/run/_test_only_stub", headers={"Authorization": f"Bearer {_INTERNAL_KEY}"}
+        )
     assert r.status_code == 200
     body = r.json()
-    assert body["job"] == "budget_guard"
-    assert body["executed"] is False  # stub
+    assert body["job"] == "_test_only_stub"
+    assert body["executed"] is False  # unregistered job stays in stub path
 
 
 def test_bearer_uses_compare_digest() -> None:
@@ -117,7 +119,7 @@ def test_bearer_uses_compare_digest() -> None:
     ) as m:
         with _app_client() as client:
             client.post(
-                "/run/budget_guard",
+                "/run/_test_only_stub",
                 headers={"Authorization": f"Bearer {_INTERNAL_KEY}"},
             )
         assert m.called
@@ -374,7 +376,7 @@ def test_rate_limit_run_endpoint() -> None:
         codes = []
         for _ in range(35):
             r = client.post(
-                "/run/budget_guard",
+                "/run/_test_only_stub",
                 headers={"Authorization": f"Bearer {_INTERNAL_KEY}"},
             )
             codes.append(r.status_code)
