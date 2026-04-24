@@ -59,6 +59,40 @@ curl -fsS --max-time 60 -X POST \
   "$RAILWAY_PUBLIC_URL/run/watchdog?dry_run=false"
 """
 
+# strategy_gate — Task 17, every 3 hours. 4-signal evaluator driving
+# learning → ready_to_switch → auto_pilot ⇄ degraded state machine.
+[[cron]]
+name = "strategy_gate"
+schedule = "0 */3 * * *"
+command = """
+curl -fsS --max-time 60 -X POST \
+  -H "Authorization: Bearer $SDA_INTERNAL_API_KEY" \
+  "$RAILWAY_PUBLIC_URL/run/strategy_gate?dry_run=false"
+"""
+
+# query_analyzer — Task 19, daily 10:00 МСК (07:00 UTC). Regex-first +
+# Haiku-fallback classifier on 7-day SEARCH_QUERY_PERFORMANCE_REPORT →
+# NEG_KW hypotheses via decision_journal (single writer).
+[[cron]]
+name = "query_analyzer"
+schedule = "0 7 * * *"
+command = """
+curl -fsS --max-time 60 -X POST \
+  -H "Authorization: Bearer $SDA_INTERNAL_API_KEY" \
+  "$RAILWAY_PUBLIC_URL/run/query_analyzer?dry_run=false"
+"""
+
+# bfl_rf_watchdog — Task 20, every 15 min. 11 thresholds + 6h cooldown for
+# the bfl-rf pilot campaign. auto_pilot phase throttles itself to 4h.
+[[cron]]
+name = "bfl_rf_watchdog"
+schedule = "*/15 * * * *"
+command = """
+curl -fsS --max-time 60 -X POST \
+  -H "Authorization: Bearer $SDA_INTERNAL_API_KEY" \
+  "$RAILWAY_PUBLIC_URL/run/bfl_rf_watchdog?dry_run=false"
+"""
+
 # shadow_monitor — Task 16b, every 5 min. Last-line contingency: detects any
 # is_mutation=TRUE + trust_level='shadow' rows in audit_log. On violation →
 # CRITICAL Telegram + FORBIDDEN_LOCK. No-op outside shadow trust.
