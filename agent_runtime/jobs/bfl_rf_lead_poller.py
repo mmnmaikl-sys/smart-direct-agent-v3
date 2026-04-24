@@ -233,31 +233,42 @@ class LeadPoller:
     # ------------------------------------------------- message formatting
 
     def _format_lead(self, lead: dict[str, Any]) -> str:
-        name = lead.get("NAME") or str(lead.get("TITLE") or "").split("#")[0].strip() or "без имени"
+        # SECURITY (Task 29 audit A03): every CRM-provided field is HTML-
+        # escaped before composing a `parse_mode=HTML` message. A lead
+        # created with NAME="<a href='evil'>..." would otherwise render
+        # as a live link in the owner's Telegram.
+        import html as _html
+
+        def _h(v: Any) -> str:
+            return _html.escape(str(v), quote=False)
+
+        raw_name = (
+            lead.get("NAME") or str(lead.get("TITLE") or "").split("#")[0].strip() or "без имени"
+        )
         phones = lead.get("PHONE") or []
-        phone = phones[0].get("VALUE", "?") if isinstance(phones, list) and phones else "—"
-        utm_content = lead.get("UTM_CONTENT") or ""
-        utm_term = lead.get("UTM_TERM") or ""
-        utm_campaign = lead.get("UTM_CAMPAIGN") or self.utm_label
+        raw_phone = phones[0].get("VALUE", "?") if isinstance(phones, list) and phones else "—"
+        raw_utm_content = lead.get("UTM_CONTENT") or ""
+        raw_utm_term = lead.get("UTM_TERM") or ""
+        raw_utm_campaign = lead.get("UTM_CAMPAIGN") or self.utm_label
         lead_id = lead.get("ID")
         quiz = _parse_source_description(lead.get("SOURCE_DESCRIPTION") or "")
 
         lines = [
-            f"🆕 <b>ЛИД {utm_campaign}</b>",
+            f"🆕 <b>ЛИД {_h(raw_utm_campaign)}</b>",
             "━━━━━━━━━━━━━━━━━",
-            f"👤 {name}",
-            f"📞 {phone}",
+            f"👤 {_h(raw_name)}",
+            f"📞 {_h(raw_phone)}",
         ]
-        if utm_term:
-            lines.append(f"🔑 «{utm_term}»")
-        if utm_content:
-            lines.append(f"📢 ad_id: {utm_content}")
+        if raw_utm_term:
+            lines.append(f"🔑 «{_h(raw_utm_term)}»")
+        if raw_utm_content:
+            lines.append(f"📢 ad_id: {_h(raw_utm_content)}")
         if quiz:
             lines.append("")
             lines.append("<b>Квиз:</b>")
             for key in _QUIZ_FIELDS:
                 if key in quiz:
-                    lines.append(f"  • {key}: {quiz[key]}")
+                    lines.append(f"  • {key}: {_h(quiz[key])}")
         lines.append("")
         base = self.settings.BITRIX_PORTAL_BASE_URL.rstrip("/")
         lines.append(f'🔗 <a href="{base}/crm/lead/details/{lead_id}/">Открыть в CRM</a>')

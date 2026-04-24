@@ -10,11 +10,12 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from agent_runtime.config import Settings
+from agent_runtime.tools import kill_switches as _kill_switches_mod
 from agent_runtime.tools.kill_switches import (
     ALL_GUARDS,
     Action,
@@ -31,6 +32,10 @@ from agent_runtime.tools.kill_switches import (
     _percentile,
     run_all,
 )
+
+# Working MSK time for wall-clock-sensitive tests (BudgetCap has a quiet-
+# hours window 00:00-02:00 МСК). 12:00 МСК is safely outside.
+_MSK_WORKING_HOURS = datetime(2026, 4, 25, 12, 0, tzinfo=UTC) + timedelta(hours=3)
 
 _PROTECTED = [708978456, 708978457, 708978458, 709014142, 709307228]
 
@@ -126,7 +131,8 @@ def test_percentile_p90_from_10() -> None:
 async def test_budget_cap_triggers_when_today_cost_exceeds_1_5x_avg() -> None:
     ctx = _context(budget_history={123: {"today_cost": 3000, "daily_avg_7d": 1500}})
     action = Action(type="raise_budget", params={"campaign_id": 123})
-    r = await BudgetCap().check(action, ctx)
+    with patch.object(_kill_switches_mod, "_current_msk_time", return_value=_MSK_WORKING_HOURS):
+        r = await BudgetCap().check(action, ctx)
     assert r.allow is False
     assert r.switch_name == "budget_cap"
     assert "3000" in r.reason and "1500" in r.reason
@@ -467,7 +473,8 @@ async def test_run_all_multiple_guards_can_fire_simultaneously() -> None:
         adgroup_productivity={9: 3},
     )
     action = Action(type="raise_budget", params={"campaign_id": 123, "ad_group_id": 9})
-    results = await run_all(action, ctx)
+    with patch.object(_kill_switches_mod, "_current_msk_time", return_value=_MSK_WORKING_HOURS):
+        results = await run_all(action, ctx)
     rejects = [r for r in results if not r.allow]
     reject_names = {r.switch_name for r in rejects}
     assert "budget_cap" in reject_names
@@ -506,7 +513,8 @@ async def test_budget_cap_fetches_history_from_direct() -> None:
     )
     ctx = _context(direct=direct)  # no pre-populated budget_history
     action = Action(type="raise_budget", params={"campaign_id": 123})
-    r = await BudgetCap().check(action, ctx)
+    with patch.object(_kill_switches_mod, "_current_msk_time", return_value=_MSK_WORKING_HOURS):
+        r = await BudgetCap().check(action, ctx)
     assert r.allow is False
 
 

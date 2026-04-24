@@ -172,6 +172,15 @@ _ACTIONS_QUERY_DRIFT = frozenset({"add_keyword", "expand_match_type"})
 # --------------------------------------------------------------------- helpers
 
 
+def _current_msk_time() -> datetime:
+    """Current datetime in МСК (UTC+3). Module-level indirection so tests
+    can monkeypatch `kill_switches._current_msk_time` and deterministically
+    pass wall-clock-sensitive checks like ``MORNING_QUIET_HOURS`` (fixes
+    Task 30 audit finding on 3 flaky tests between 00:00-02:00 МСК).
+    """
+    return datetime.now(UTC) + timedelta(hours=3)
+
+
 def _today_utc_date(now: datetime | None = None) -> str:
     dt = now if now is not None else datetime.now(UTC)
     return dt.date().isoformat()
@@ -221,7 +230,7 @@ class BudgetCap:
         if action.type not in _ACTIONS_BUDGET_CAP and "campaign_id" not in action.params:
             return KillSwitchResult(True, "n/a for this action", self.name)
 
-        now = datetime.now(UTC) + timedelta(hours=3)  # МСК
+        now = _current_msk_time()
         if self.MORNING_QUIET_HOURS[0] <= now.hour < self.MORNING_QUIET_HOURS[1]:
             return KillSwitchResult(True, "morning quiet hours; skipping", self.name)
 
