@@ -7,10 +7,14 @@ request (fail-fast per Decision 11 auth layer and Decision 14 single driver).
 
 from __future__ import annotations
 
+import re
 from importlib import metadata
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_MIN_SECRET_HEX_LEN = 64  # 32 bytes of entropy as hex — Decision 11 / Task 5b AC
+_HEX_RE = re.compile(r"^[0-9a-fA-F]+$")
 
 DEFAULT_PROTECTED_CAMPAIGNS: tuple[int, ...] = (
     708978456,
@@ -64,6 +68,23 @@ class Settings(BaseSettings):
         min_size = info.data.get("DB_POOL_MIN_SIZE", 2)
         if v < min_size:
             raise ValueError(f"DB_POOL_MAX_SIZE ({v}) must be >= DB_POOL_MIN_SIZE ({min_size})")
+        return v
+
+    @field_validator(
+        "SDA_INTERNAL_API_KEY",
+        "SDA_WEBHOOK_HMAC_SECRET",
+        "HYPOTHESIS_HMAC_SECRET",
+    )
+    @classmethod
+    def validate_hex_secret_strength(cls, v: SecretStr) -> SecretStr:
+        raw = v.get_secret_value()
+        if len(raw) < _MIN_SECRET_HEX_LEN:
+            raise ValueError(
+                f"secret too short: {len(raw)} chars < {_MIN_SECRET_HEX_LEN} "
+                "(generate with `openssl rand -hex 32`)"
+            )
+        if not _HEX_RE.match(raw):
+            raise ValueError("secret must be hex-encoded (0-9 a-f)")
         return v
 
 

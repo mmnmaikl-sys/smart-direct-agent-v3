@@ -19,9 +19,9 @@ from agent_runtime.main import create_app
 def _make_settings() -> Settings:
     return Settings(  # type: ignore[call-arg]
         DATABASE_URL="postgresql://test:test@localhost:5432/test",
-        SDA_INTERNAL_API_KEY="t" + "0" * 59,
-        SDA_WEBHOOK_HMAC_SECRET="w" + "0" * 59,
-        HYPOTHESIS_HMAC_SECRET="h" + "0" * 59,
+        SDA_INTERNAL_API_KEY="a" * 64,
+        SDA_WEBHOOK_HMAC_SECRET="b" * 64,
+        HYPOTHESIS_HMAC_SECRET="c" * 64,
     )
 
 
@@ -137,8 +137,8 @@ def test_create_app_has_health_route() -> None:
 def test_settings_normalize_postgres_protocol(protocol: str) -> None:
     settings = Settings(  # type: ignore[call-arg]
         DATABASE_URL=f"{protocol}u:p@h:5432/db",
-        SDA_INTERNAL_API_KEY="t" + "0" * 59,
-        SDA_WEBHOOK_HMAC_SECRET="w" + "0" * 59,
-        HYPOTHESIS_HMAC_SECRET="h" + "0" * 59,
+        SDA_INTERNAL_API_KEY="a" * 64,
+        SDA_WEBHOOK_HMAC_SECRET="b" * 64,
+        HYPOTHESIS_HMAC_SECRET="c" * 64,
     )
     assert settings.DATABASE_URL.startswith("postgresql://")

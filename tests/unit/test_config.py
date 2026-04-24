@@ -11,9 +11,9 @@ from agent_runtime.config import Settings
 def _kwargs(**overrides):
     base = dict(
         DATABASE_URL="postgresql://u:p@h:5432/db",
-        SDA_INTERNAL_API_KEY="k" + "0" * 59,
-        SDA_WEBHOOK_HMAC_SECRET="k" + "0" * 59,
-        HYPOTHESIS_HMAC_SECRET="k" + "0" * 59,
+        SDA_INTERNAL_API_KEY="a" * 64,
+        SDA_WEBHOOK_HMAC_SECRET="b" * 64,
+        HYPOTHESIS_HMAC_SECRET="c" * 64,
     )
     base.update(overrides)
     return base
@@ -46,3 +46,15 @@ def test_missing_database_url_fails_fast(monkeypatch: pytest.MonkeyPatch) -> Non
         monkeypatch.delenv(key, raising=False)
     with pytest.raises(ValidationError):
         Settings()  # type: ignore[call-arg]
+
+
+def test_short_secret_rejected() -> None:
+    with pytest.raises(ValidationError) as exc:
+        Settings(**_kwargs(SDA_INTERNAL_API_KEY="abc123"))  # type: ignore[arg-type]
+    assert "secret too short" in str(exc.value)
+
+
+def test_non_hex_secret_rejected() -> None:
+    with pytest.raises(ValidationError) as exc:
+        Settings(**_kwargs(SDA_INTERNAL_API_KEY="z" * 64))  # type: ignore[arg-type]
+    assert "hex" in str(exc.value)

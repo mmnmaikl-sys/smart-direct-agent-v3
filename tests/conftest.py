@@ -10,6 +10,8 @@ from __future__ import annotations
 import os
 
 os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost:5432/test")
-os.environ.setdefault("SDA_INTERNAL_API_KEY", "test-internal-" + "0" * 48)
-os.environ.setdefault("SDA_WEBHOOK_HMAC_SECRET", "test-webhook-" + "0" * 48)
-os.environ.setdefault("HYPOTHESIS_HMAC_SECRET", "test-hypothesis-" + "0" * 48)
+# Dummy 64-char hex strings. Real secrets ship via Railway env (openssl rand -hex 32).
+# Keep these distinct from each other so tests can detect accidental secret reuse.
+os.environ.setdefault("SDA_INTERNAL_API_KEY", "a" * 64)
+os.environ.setdefault("SDA_WEBHOOK_HMAC_SECRET", "b" * 64)
+os.environ.setdefault("HYPOTHESIS_HMAC_SECRET", "c" * 64)
