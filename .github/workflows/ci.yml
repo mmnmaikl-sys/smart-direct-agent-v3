@@ -63,6 +63,10 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: "pip"
+      - name: Install PostgreSQL (for pytest-postgresql integration tests)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql postgresql-contrib libpq-dev
       - name: Install dev deps
         run: pip install -e ".[dev]"
       # TODO(Wave 1 Task 5+): raise --cov-fail-under to 80 once agent_runtime has real code.

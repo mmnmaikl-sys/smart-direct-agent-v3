@@ -42,7 +42,7 @@ def test_blocks_import_tmp_sda_v2_variant(tmp_path: Path) -> None:
 
 
 def test_blocks_sys_path_insert(tmp_path: Path) -> None:
-    content = "import sys\n" 'sys.path.insert(0, "/tmp/sda-v2")\n' "from sda_v2 import tools\n"
+    content = 'import sys\nsys.path.insert(0, "/tmp/sda-v2")\nfrom sda_v2 import tools\n'
     result = _run_hook(tmp_path, content)
     assert result.returncode != 0
     assert "BLOCKED" in result.stdout + result.stderr
