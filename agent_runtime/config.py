@@ -91,6 +91,12 @@ class Settings(BaseSettings):
         ]
     )
 
+    # Own public base URL used by jobs that POST back to SDA endpoints (e.g.
+    # form_checker probing /lead). Prod value is set to
+    # "https://{RAILWAY_PUBLIC_DOMAIN}" via env in Railway; localhost fallback
+    # is safe — form_checker tests never hit the real wire.
+    PUBLIC_BASE_URL: str = "http://localhost:8000"
+
     LOG_LEVEL: str = "INFO"
     APP_VERSION: str = Field(default_factory=_resolve_app_version)
     DB_POOL_MIN_SIZE: int = 2

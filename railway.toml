@@ -59,6 +59,17 @@ curl -fsS --max-time 60 -X POST \
   "$RAILWAY_PUBLIC_URL/run/watchdog?dry_run=false"
 """
 
+# form_checker — Task 15, daily 07:00 МСК (04:00 UTC). Health-checks landing
+# pages + CORS + /lead endpoint + ad moderation; in shadow NOTIFY only.
+[[cron]]
+name = "form_checker"
+schedule = "0 4 * * *"
+command = """
+curl -fsS --max-time 60 -X POST \
+  -H "Authorization: Bearer $SDA_INTERNAL_API_KEY" \
+  "$RAILWAY_PUBLIC_URL/run/form_checker?dry_run=false"
+"""
+
 # budget_guard — Task 14, every 30 min 8:00-23:30 МСК. Reads Direct today_cost
 # vs daily_avg_7d × 1.5 + absolute DailyBudget ceiling. Hypothesis-aware:
 # running hypothesis past its budget_cap concludes cleanly without alert.
