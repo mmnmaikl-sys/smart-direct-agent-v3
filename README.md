@@ -27,7 +27,19 @@ pytest
 
 ## Deployment
 
-See `.github/workflows/deploy.yml` (created in Task 3). Deploy is triggered by push to `main` + manual approval in environment=`production`. Local `railway up` is forbidden — see WARNING above.
+Deploy is performed **ONLY via GitHub Actions**:
+
+1. Push to `main` → `.github/workflows/deploy.yml` runs automatically
+2. Workflow verifies `requirements.lock` hashes, runs pytest
+3. GitHub Environment `production` requires **manual approval** from owner
+4. After approval, `railway up --service smart-direct-agent-v3 --detach` deploys to Railway
+5. `scripts/smoke_test.sh` hits `/health` with retries; failure fails the workflow
+6. On deploy failure → **manual rollback via Railway UI** (rollback is not automated in v3)
+
+**Never run `railway up` from a local folder.** See WARNING at the top of this file (Decision 10, 24.04 incident).
+
+Secrets required in GitHub Actions (Settings → Secrets and variables → Actions):
+- `RAILWAY_TOKEN` — service-specific token from Railway UI
 
 ## Development
 
