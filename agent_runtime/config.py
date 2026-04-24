@@ -97,6 +97,18 @@ class Settings(BaseSettings):
     # is safe — form_checker tests never hit the real wire.
     PUBLIC_BASE_URL: str = "http://localhost:8000"
 
+    # Lead poller (Task 16). In-process asyncio loop in FastAPI lifespan —
+    # Railway Cron minimum interval is 5 min, we want realtime-ish 60 s so
+    # the owner sees the agent "alive". Guarded by a non-empty whitelist:
+    # setting LEAD_POLLER_UTM_WHITELIST=[] disables the loop entirely
+    # (useful for local dev / CI).
+    LEAD_POLLER_UTM_WHITELIST: list[str] = Field(default_factory=lambda: ["bfl-rf"])
+    LEAD_POLLER_INTERVAL_SEC: int = 60
+    LEAD_POLLER_INITIAL_LOOKBACK_MIN: int = 5
+    LEAD_POLLER_MAX_PAGES: int = 5
+    LEAD_POLLER_NOTIFIED_IDS_CAP: int = 100
+    BITRIX_PORTAL_BASE_URL: str = "https://sodeystvieko.bitrix24.ru"
+
     LOG_LEVEL: str = "INFO"
     APP_VERSION: str = Field(default_factory=_resolve_app_version)
     DB_POOL_MIN_SIZE: int = 2

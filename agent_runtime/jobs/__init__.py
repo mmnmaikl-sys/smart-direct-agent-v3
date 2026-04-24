@@ -15,6 +15,7 @@ from psycopg_pool import AsyncConnectionPool
 
 from agent_runtime.jobs import (
     audit_retention,
+    bfl_rf_lead_poller,
     budget_guard,
     form_checker,
     impact_tracker_job,
@@ -28,6 +29,7 @@ JOB_REGISTRY: dict[str, JobCallable] = {
     "budget_guard": budget_guard.run,
     "form_checker": form_checker.run,
     "impact_tracker": impact_tracker_job.run,
+    "lead_poller": bfl_rf_lead_poller.run,
     "watchdog": watchdog.run,
 }
 

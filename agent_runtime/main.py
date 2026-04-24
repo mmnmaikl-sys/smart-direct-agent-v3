@@ -14,6 +14,7 @@ dependencies onto every mutating endpoint from day one.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -35,6 +36,7 @@ from agent_runtime.auth import (
 from agent_runtime.config import Settings, get_settings
 from agent_runtime.db import create_pool, db_ping, run_migrations
 from agent_runtime.jobs import JOB_REGISTRY, dispatch_job
+from agent_runtime.jobs.bfl_rf_lead_poller import LeadPoller, _lead_poller_loop
 
 logger = logging.getLogger(__name__)
 
@@ -71,9 +73,22 @@ def _make_lifespan(settings: Settings):
             len(applied),
         )
 
+        # Lead poller — in-process asyncio loop (Decision 9). Only started
+        # when a UTM whitelist is configured; otherwise we let CI / dev
+        # environments boot without background noise.
+        poller_task: asyncio.Task[None] | None = None
+        if settings.LEAD_POLLER_UTM_WHITELIST:
+            poller = LeadPoller(pool, app.state.http_client, settings)
+            poller_task = asyncio.create_task(_lead_poller_loop(poller))
+            app.state.lead_poller_task = poller_task
+
         try:
             yield
         finally:
+            if poller_task is not None:
+                poller_task.cancel()
+                await asyncio.gather(poller_task, return_exceptions=True)
+                logger.info("Lead poller stopped")
             await app.state.http_client.aclose()
             await pool.close()
             logger.info("lifespan shutdown: http client + pool closed")
