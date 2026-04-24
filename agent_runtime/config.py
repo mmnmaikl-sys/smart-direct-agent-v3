@@ -49,6 +49,10 @@ class Settings(BaseSettings):
     SDA_INTERNAL_API_KEY: SecretStr
     SDA_WEBHOOK_HMAC_SECRET: SecretStr
     HYPOTHESIS_HMAC_SECRET: SecretStr
+    # PII_SALT is deliberately NOT hex-enforced: it is rotated never (rotating
+    # would invalidate all prior phone hashes, breaking audit_log-> CRM lookups).
+    # Length >= 32 chars is the only strength gate.
+    PII_SALT: SecretStr
 
     LOG_LEVEL: str = "INFO"
     APP_VERSION: str = Field(default_factory=_resolve_app_version)
@@ -85,6 +89,20 @@ class Settings(BaseSettings):
             )
         if not _HEX_RE.match(raw):
             raise ValueError("secret must be hex-encoded (0-9 a-f)")
+        return v
+
+    @field_validator("PII_SALT")
+    @classmethod
+    def validate_pii_salt_strength(cls, v: SecretStr) -> SecretStr:
+        # Phone-space in RF is ~10^10 values — an 8-char salt leaves cheap
+        # rainbow tables; 32 chars gives 256 bits of entropy. Salt is never
+        # rotated (Decision 13 / reference_credentials_and_services memory).
+        raw = v.get_secret_value()
+        if len(raw) < 32:
+            raise ValueError(
+                f"PII_SALT too short: {len(raw)} chars < 32 "
+                "(generate with `python -c 'import secrets; print(secrets.token_hex(32))'`)"
+            )
         return v
 
 

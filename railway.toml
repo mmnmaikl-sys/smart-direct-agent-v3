@@ -18,3 +18,21 @@ healthcheckPath = "/health"
 healthcheckTimeout = 30
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 3
+
+# -----------------------------------------------------------------------------
+# Cron jobs. Each cron runs as a SEPARATE Railway service with the same code
+# but `startCommand` overridden to hit /run/{job}. Registering here documents
+# the intent; the actual service config is created in Railway UI once per job.
+# Bearer is supplied via $SDA_INTERNAL_API_KEY shared env.
+#
+# audit_retention — Task 5c, weekly Sunday 00:00 UTC (03:00 МСК). Deletes
+# audit_log rows older than 90 days per Decision 13.
+# -----------------------------------------------------------------------------
+[[cron]]
+name = "audit_retention"
+schedule = "0 0 * * 0"  # every Sunday 00:00 UTC
+command = """
+curl -fsS -X POST \
+  -H "Authorization: Bearer $SDA_INTERNAL_API_KEY" \
+  "$RAILWAY_PUBLIC_URL/run/audit_retention?dry_run=false"
+"""

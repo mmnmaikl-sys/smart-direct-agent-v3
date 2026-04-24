@@ -36,6 +36,7 @@ def _make_settings() -> Settings:
         SDA_INTERNAL_API_KEY=_INTERNAL_KEY,
         SDA_WEBHOOK_HMAC_SECRET=_WEBHOOK_SECRET,
         HYPOTHESIS_HMAC_SECRET=_HYPOTHESIS_SECRET,
+        PII_SALT="pii-test-salt-" + "0" * 32,
     )
 
 
@@ -74,6 +75,7 @@ def test_startup_rejects_short_api_key() -> None:
             SDA_INTERNAL_API_KEY="short",
             SDA_WEBHOOK_HMAC_SECRET=_WEBHOOK_SECRET,
             HYPOTHESIS_HMAC_SECRET=_HYPOTHESIS_SECRET,
+            PII_SALT="pii-test-salt-" + "0" * 32,
         )
     assert "too short" in str(exc.value).lower()
 

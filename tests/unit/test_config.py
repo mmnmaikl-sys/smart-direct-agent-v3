@@ -14,6 +14,7 @@ def _kwargs(**overrides):
         SDA_INTERNAL_API_KEY="a" * 64,
         SDA_WEBHOOK_HMAC_SECRET="b" * 64,
         HYPOTHESIS_HMAC_SECRET="c" * 64,
+        PII_SALT="pii-test-salt-" + "0" * 32,
     )
     base.update(overrides)
     return base
@@ -42,10 +43,17 @@ def test_missing_database_url_fails_fast(monkeypatch: pytest.MonkeyPatch) -> Non
         "SDA_INTERNAL_API_KEY",
         "SDA_WEBHOOK_HMAC_SECRET",
         "HYPOTHESIS_HMAC_SECRET",
+        "PII_SALT",
     ):
         monkeypatch.delenv(key, raising=False)
     with pytest.raises(ValidationError):
         Settings()  # type: ignore[call-arg]
+
+
+def test_short_pii_salt_rejected() -> None:
+    with pytest.raises(ValidationError) as exc:
+        Settings(**_kwargs(PII_SALT="tooshort"))  # type: ignore[arg-type]
+    assert "PII_SALT too short" in str(exc.value)
 
 
 def test_short_secret_rejected() -> None:

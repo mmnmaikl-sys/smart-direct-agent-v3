@@ -15,3 +15,4 @@ os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost:5432/tes
 os.environ.setdefault("SDA_INTERNAL_API_KEY", "a" * 64)
 os.environ.setdefault("SDA_WEBHOOK_HMAC_SECRET", "b" * 64)
 os.environ.setdefault("HYPOTHESIS_HMAC_SECRET", "c" * 64)
+os.environ.setdefault("PII_SALT", "pii-test-salt-" + "0" * 32)

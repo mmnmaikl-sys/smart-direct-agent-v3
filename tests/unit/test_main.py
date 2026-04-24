@@ -22,6 +22,7 @@ def _make_settings() -> Settings:
         SDA_INTERNAL_API_KEY="a" * 64,
         SDA_WEBHOOK_HMAC_SECRET="b" * 64,
         HYPOTHESIS_HMAC_SECRET="c" * 64,
+        PII_SALT="pii-test-salt-" + "0" * 32,
     )
 
 
@@ -140,5 +141,6 @@ def test_settings_normalize_postgres_protocol(protocol: str) -> None:
         SDA_INTERNAL_API_KEY="a" * 64,
         SDA_WEBHOOK_HMAC_SECRET="b" * 64,
         HYPOTHESIS_HMAC_SECRET="c" * 64,
+        PII_SALT="pii-test-salt-" + "0" * 32,
     )
     assert settings.DATABASE_URL.startswith("postgresql://")

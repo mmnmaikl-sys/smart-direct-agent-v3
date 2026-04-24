@@ -33,6 +33,7 @@ from agent_runtime.auth import (
 )
 from agent_runtime.config import Settings, get_settings
 from agent_runtime.db import create_pool, db_ping, run_migrations
+from agent_runtime.jobs import JOB_REGISTRY, dispatch_job
 
 logger = logging.getLogger(__name__)
 
@@ -106,11 +107,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/run/{job}", dependencies=[Depends(require_internal_key)])
     @limiter.limit("30/minute")
-    async def run_job(request: Request, job: str) -> JSONResponse:
-        # Real dispatch lands in Tasks 9-18. Stub returns the job name so
-        # smoke tests and auth tests can verify the gate without needing a
-        # live registry.
-        return JSONResponse({"status": "ok", "job": job, "executed": False})
+    async def run_job(request: Request, job: str, dry_run: bool = False) -> JSONResponse:
+        # Unregistered jobs return 200 with `executed=False` so auth/rate-limit
+        # tests keep working without a live registry for every job name. Jobs
+        # that ARE registered (starting with audit_retention in Task 5c) run
+        # for real.
+        if job not in JOB_REGISTRY:
+            return JSONResponse({"status": "ok", "job": job, "executed": False})
+        pool = getattr(request.app.state, "pool", None)
+        if pool is None:
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content={"status": "error", "detail": "DB pool not initialised"},
+            )
+        result = await dispatch_job(job, pool, dry_run=dry_run)
+        return JSONResponse({"status": "ok", "job": job, "executed": True, "result": result})
 
     @app.post("/webhook/bitrix")
     @limiter.limit("100/minute")
