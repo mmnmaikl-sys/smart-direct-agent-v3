@@ -59,6 +59,52 @@ curl -fsS --max-time 60 -X POST \
   "$RAILWAY_PUBLIC_URL/run/watchdog?dry_run=false"
 """
 
+# smart_optimizer — Task 18, every 4 hours. Full ReAct loop: signals →
+# brain.reason → kill_switches → record_hypothesis → execute per trust overlay.
+[[cron]]
+name = "smart_optimizer"
+schedule = "0 */4 * * *"
+command = """
+curl -fsS --max-time 60 -X POST \
+  -H "Authorization: Bearer $SDA_INTERNAL_API_KEY" \
+  "$RAILWAY_PUBLIC_URL/run/smart_optimizer?dry_run=false"
+"""
+
+# auto_resume — Task 21, daily 08:00 МСК (05:00 UTC). Resumes PROTECTED
+# campaigns auto-suspended by budget_guard/form_checker once conditions clear.
+[[cron]]
+name = "auto_resume"
+schedule = "0 5 * * *"
+command = """
+curl -fsS --max-time 60 -X POST \
+  -H "Authorization: Bearer $SDA_INTERNAL_API_KEY" \
+  "$RAILWAY_PUBLIC_URL/run/auto_resume?dry_run=false"
+"""
+
+# autotargeting_manager — Task 21, every 3h (offset :50). Keeps ЕПК-Поиск
+# autotargeting locked to EXACT + WithoutBrands; drifts → set back.
+[[cron]]
+name = "autotargeting_manager"
+schedule = "50 4-22/3 * * *"
+command = """
+curl -fsS --max-time 60 -X POST \
+  -H "Authorization: Bearer $SDA_INTERNAL_API_KEY" \
+  "$RAILWAY_PUBLIC_URL/run/autotargeting_manager?dry_run=false"
+"""
+
+# bitrix_feedback — Task 22. Daily per-campaign CPA lead/won via Bitrix
+# C45:WON deals + Direct spend; persists history in sda_state for
+# decision_engine consumption. Monday 11:30 МСК (08:30 UTC) also resets
+# weekly mutations counter inside its SELECT FOR UPDATE window.
+[[cron]]
+name = "bitrix_feedback"
+schedule = "30 8 * * *"
+command = """
+curl -fsS --max-time 60 -X POST \
+  -H "Authorization: Bearer $SDA_INTERNAL_API_KEY" \
+  "$RAILWAY_PUBLIC_URL/run/bitrix_feedback?dry_run=false"
+"""
+
 # strategy_gate — Task 17, every 3 hours. 4-signal evaluator driving
 # learning → ready_to_switch → auto_pilot ⇄ degraded state machine.
 [[cron]]
