@@ -130,3 +130,15 @@ jobs:
       - uses: actions/checkout@v4
       - name: Run grill_audit.sh
         run: bash scripts/grill_audit.sh
+
+  verify-pairing:
+    name: Verify-pairing (GET-after-SET AST gate)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Run check_verify_pairing
+        run: python scripts/check_verify_pairing.py --module agent_runtime/tools/direct_api.py

@@ -59,6 +59,11 @@ class Settings(BaseSettings):
     # a key. Jobs that actually call the LLM surface AnthropicKeyMissing.
     ANTHROPIC_API_KEY: SecretStr = Field(default=SecretStr(""))
 
+    # Yandex Direct API token. Same "optional at import, required at call
+    # site" pattern as ANTHROPIC_API_KEY — DirectAPI raises if empty.
+    YANDEX_DIRECT_TOKEN: SecretStr = Field(default=SecretStr(""))
+    YANDEX_DIRECT_BASE_URL: str = "https://api.direct.yandex.com/json/v5"
+
     LOG_LEVEL: str = "INFO"
     APP_VERSION: str = Field(default_factory=_resolve_app_version)
     DB_POOL_MIN_SIZE: int = 2
@@ -69,6 +74,19 @@ class Settings(BaseSettings):
     def normalize_dsn(cls, v: str) -> str:
         if v.startswith("postgres://"):
             return "postgresql://" + v[len("postgres://") :]
+        return v
+
+    @field_validator("PROTECTED_CAMPAIGN_IDS")
+    @classmethod
+    def protected_list_non_empty(cls, v: list[int]) -> list[int]:
+        # Decision 17 requires explicit guard list. Empty = defence disabled,
+        # which must never happen silently on deploy. Override is possible
+        # only by editing the default in code (grep-auditable).
+        if not v:
+            raise ValueError(
+                "PROTECTED_CAMPAIGN_IDS must be non-empty "
+                "(Decision 17 — live campaigns require runtime guard)"
+            )
         return v
 
     @field_validator("DB_POOL_MAX_SIZE")
