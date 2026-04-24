@@ -76,6 +76,21 @@ class Settings(BaseSettings):
     TELEGRAM_BOT_TOKEN: SecretStr = Field(default=SecretStr(""))
     TELEGRAM_CHAT_ID: int = 0
 
+    # Signal Detector thresholds (Task 11). Moved out of hardcoded module
+    # constants so Wave 2 tuning via Railway env is trivial.
+    TARGET_CPA: int = 5000
+    DAILY_BUDGET_LIMIT: int = 3000
+    GOAL_ID: int = 0  # Metrika conversion goal — optional (0 == not configured)
+    PROTECTED_LANDING_URLS: list[str] = Field(
+        default_factory=lambda: [
+            "https://24bankrotsttvo.ru/pages/ad/bankrotstvo-v4.html",
+            "https://24bankrotsttvo.ru/pages/ad/price-v4.html",
+            "https://24bankrotsttvo.ru/pages/ad/spisanie-dolgov-v4.html",
+            "https://24bankrotsttvo.ru/pages/ad/yurist-v4.html",
+            "https://24bankrotsttvo.ru/pages/ad/cherez-mfc-v4.html",
+        ]
+    )
+
     LOG_LEVEL: str = "INFO"
     APP_VERSION: str = Field(default_factory=_resolve_app_version)
     DB_POOL_MIN_SIZE: int = 2
