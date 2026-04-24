@@ -59,6 +59,53 @@ curl -fsS --max-time 60 -X POST \
   "$RAILWAY_PUBLIC_URL/run/watchdog?dry_run=false"
 """
 
+# offline_conversions — Task 24, daily 10:00 МСК (07:00 UTC). Bitrix WON
+# deals → Metrika/Direct offline conversion upload; sda_state ring-buffer
+# dedup; 152-ФЗ consent gate.
+[[cron]]
+name = "offline_conversions"
+schedule = "0 7 * * *"
+command = """
+curl -fsS --max-time 60 -X POST \
+  -H "Authorization: Bearer $SDA_INTERNAL_API_KEY" \
+  "$RAILWAY_PUBLIC_URL/run/offline_conversions?dry_run=false"
+"""
+
+# audience_sync — Task 24, weekly Wed 09:00 МСК (06:00 UTC). WON leads →
+# MD5-hashed phones → Yandex Audience segment. Consent-gated.
+[[cron]]
+name = "audience_sync"
+schedule = "0 6 * * 3"
+command = """
+curl -fsS --max-time 60 -X POST \
+  -H "Authorization: Bearer $SDA_INTERNAL_API_KEY" \
+  "$RAILWAY_PUBLIC_URL/run/audience_sync?dry_run=false"
+"""
+
+# strategy_switcher — Task 26, Mondays 11:00 МСК (08:00 UTC). Reads
+# strategy_gate state; on ready_to_switch prepares Strategy + queues ASK
+# for owner. No direct mutation (Task 23 approves).
+[[cron]]
+name = "strategy_switcher"
+schedule = "0 8 * * 1"
+command = """
+curl -fsS --max-time 60 -X POST \
+  -H "Authorization: Bearer $SDA_INTERNAL_API_KEY" \
+  "$RAILWAY_PUBLIC_URL/run/strategy_switcher?dry_run=false"
+"""
+
+# health_checker — Task 26, daily 13:00 МСК (10:00 UTC). Read-only
+# diagnostics: bounce/avg_time/device breakdown via Metrika + landing
+# pings. No mutations, just summary report to Telegram.
+[[cron]]
+name = "health_checker"
+schedule = "0 10 * * *"
+command = """
+curl -fsS --max-time 60 -X POST \
+  -H "Authorization: Bearer $SDA_INTERNAL_API_KEY" \
+  "$RAILWAY_PUBLIC_URL/run/health_checker?dry_run=false"
+"""
+
 # telegram_digest — Task 23, daily 09:00 МСК (06:00 UTC). Rolling 24h
 # digest of actions/hypotheses/asks + empty-state "Тихая ночь" footer.
 [[cron]]

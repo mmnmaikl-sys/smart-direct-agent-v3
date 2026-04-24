@@ -14,6 +14,7 @@ from typing import Any
 from psycopg_pool import AsyncConnectionPool
 
 from agent_runtime.jobs import (
+    audience_sync,
     audit_retention,
     auto_resume,
     autotargeting_manager,
@@ -22,13 +23,16 @@ from agent_runtime.jobs import (
     bitrix_feedback,
     budget_guard,
     form_checker,
+    health_checker,
     impact_tracker_job,
     learner,
+    offline_conversions,
     query_analyzer,
     regression_watch,
     shadow_monitor,
     smart_optimizer,
     strategy_gate,
+    strategy_switcher,
     telegram_digest,
     watchdog,
 )
@@ -37,20 +41,24 @@ JobCallable = Callable[..., Awaitable[dict[str, Any]]]
 
 JOB_REGISTRY: dict[str, JobCallable] = {
     "audit_retention": audit_retention.run,
+    "audience_sync": audience_sync.run,
     "auto_resume": auto_resume.run,
     "autotargeting_manager": autotargeting_manager.run,
     "bfl_rf_watchdog": bfl_rf_watchdog.run,
     "bitrix_feedback": bitrix_feedback.run,
     "budget_guard": budget_guard.run,
     "form_checker": form_checker.run,
+    "health_checker": health_checker.run,
     "impact_tracker": impact_tracker_job.run,
     "learner": learner.run,
     "lead_poller": bfl_rf_lead_poller.run,
+    "offline_conversions": offline_conversions.run,
     "query_analyzer": query_analyzer.run,
     "regression_watch": regression_watch.run,
     "shadow_monitor": shadow_monitor.run,
     "smart_optimizer": smart_optimizer.run,
     "strategy_gate": strategy_gate.run,
+    "strategy_switcher": strategy_switcher.run,
     "telegram_digest": telegram_digest.run,
     "watchdog": watchdog.run,
 }
