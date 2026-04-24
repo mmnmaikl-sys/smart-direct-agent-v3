@@ -1,4 +1,5 @@
 """Smoke tests for Task 1 bootstrap: editable install + pyproject correctness."""
+
 from __future__ import annotations
 
 import tomllib
@@ -25,6 +26,6 @@ def test_pyproject_parseable() -> None:
 
     assert data["project"]["name"] == "smart-direct-agent-v3"
     deps = data["project"]["dependencies"]
-    assert any(d.startswith("agents-core") and "git+" in d for d in deps), (
-        "agents-core must be pinned via git+https:// (Decision 2: SHA pinning, not tag)"
-    )
+    assert any(
+        d.startswith("agents-core") and "git+" in d for d in deps
+    ), "agents-core must be pinned via git+https:// (Decision 2: SHA pinning, not tag)"

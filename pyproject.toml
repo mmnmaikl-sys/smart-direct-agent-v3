@@ -25,8 +25,9 @@ dev = [
     "pytest-asyncio>=0.23",
     "pytest-mock>=3",
     "pytest-cov>=4",
-    "ruff>=0.4",
-    "pyright>=1.1",
+    "ruff>=0.6",
+    "pyright>=1.1.380",
+    "pre-commit>=3.8",
     "pip-audit>=2.7",
     "shellcheck-py>=0.10",
 ]
@@ -42,3 +43,23 @@ asyncio_mode = "auto"
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S", "ASYNC", "T20"]
+ignore = [
+    "S101",  # allow `assert` in tests and smoke
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S603", "S607"]  # test subprocess/assert allowed
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pyright]
+include = ["agent_runtime", "tests"]
+pythonVersion = "3.12"
+typeCheckingMode = "basic"
+reportMissingTypeStubs = false
+reportMissingImports = "warning"

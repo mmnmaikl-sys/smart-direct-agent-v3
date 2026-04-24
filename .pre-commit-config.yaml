@@ -1,0 +1,43 @@
+repos:
+  # Standard checks (trailing whitespace, large files, etc.)
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ["--maxkb=500"]
+      - id: check-yaml
+      - id: check-toml
+      - id: detect-private-key
+
+  # Ruff — linter + formatter
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.7.4
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  # Pyright — static type checking (basic mode)
+  - repo: https://github.com/RobertCraigie/pyright-python
+    rev: v1.1.389
+    hooks:
+      - id: pyright
+        args: [agent_runtime]
+        # Run only on staged files to keep pre-commit fast; full scan in CI (Task 3)
+        pass_filenames: false
+
+  # Custom: block imports from /tmp/sda-v2* (Decision 10, 24.04 incident)
+  - repo: local
+    hooks:
+      - id: block-tmp-sda-v2-imports
+        name: block imports from /tmp/sda-v2* (Decision 10)
+        entry: scripts/check_tmp_sda_v2_imports.sh
+        language: script
+        files: \.py$
+        # The test file itself contains the forbidden patterns as *test data*
+        # (string literals passed to the hook script). Exclude to avoid self-block.
+        exclude: ^tests/unit/test_precommit_block_tmp_import\.py$
+        pass_filenames: true

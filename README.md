@@ -33,5 +33,22 @@ See `.github/workflows/deploy.yml` (created in Task 3). Deploy is triggered by p
 
 - Python ≥ 3.12 (Railway default)
 - Dependencies pinned by commit SHA (agents-core) + requirements.lock with hashes (Task 3)
-- Pre-commit hooks (Task 2) block imports from `/tmp/sda-v2*` (legacy paths)
+- Pre-commit hooks block imports from `/tmp/sda-v2*` (Decision 10, 24.04 incident protection)
 - CI runs: pytest, ruff, pyright, pip-audit, shellcheck, legal canary, grill audit
+
+### Development setup
+
+```bash
+# After clone + venv + install (see Setup section above):
+pre-commit install                  # hooks will run on every git commit
+pre-commit run --all-files          # manual run (baseline check)
+```
+
+**Hooks (from `.pre-commit-config.yaml`):**
+
+- Standard: trailing whitespace, end-of-file fixer, merge conflict markers, large files (>500KB), YAML/TOML syntax, private key leak detection.
+- `ruff check --fix` + `ruff format` — lint + style.
+- `pyright` (basic mode) — static type checking on `agent_runtime/`.
+- **`block-tmp-sda-v2-imports`** — custom local hook, refuses commits importing from `/tmp/sda-v2*` paths. This is the direct safeguard for the 24.04 incident (see Decision 10 in `decisions.md`). Script: `scripts/check_tmp_sda_v2_imports.sh`.
+
+If a hook fails, fix the underlying issue — do NOT use `--no-verify`.
