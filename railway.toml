@@ -12,10 +12,11 @@
 builder = "NIXPACKS"
 
 [deploy]
-# healthcheckPath points to /health endpoint created in Task 5 (FastAPI skeleton).
-# Until then the service returns 404 on /, which is expected.
+# Start command — uvicorn binds to Railway's $PORT (auto-injected). NIXPACKS
+# wouldn't know to run uvicorn against agent_runtime.main:app without this.
+startCommand = "uvicorn agent_runtime.main:app --host 0.0.0.0 --port $PORT"
 healthcheckPath = "/health"
-healthcheckTimeout = 30
+healthcheckTimeout = 60
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 3
 
