@@ -1,0 +1,41 @@
+name: Shadow-period cron triggers
+
+# Free GitHub-hosted cron — pings the deployed /run/{job} endpoints during the
+# 14-day shadow validation. Railway's [[cron]] in railway.toml requires per-job
+# service creation (UI-only), which is overkill while jobs run in shadow
+# (no mutations possible). Once we promote to ASSISTED, switch to Railway
+# native cron services so each job has independent retry/observability.
+
+on:
+  schedule:
+    # shadow_monitor: every 5 min (invariant guard — critical)
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping-shadow-critical:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: shadow_monitor (every 5 min)
+        env:
+          BEARER: ${{ secrets.SDA_INTERNAL_API_KEY }}
+        run: |
+          curl -fsS -X POST -H "Authorization: Bearer $BEARER" \
+            --max-time 60 \
+            "https://smart-direct-agent-v3-production.up.railway.app/run/shadow_monitor?dry_run=false" \
+            | python3 -c "import sys,json; r=json.load(sys.stdin); print('shadow_monitor:', r.get('result',{}).get('locked'),  r.get('result',{}).get('violations_count'))"
+
+      - name: watchdog (only at :00 of each hour — co-trigger via 12-of-60 mod check)
+        env:
+          BEARER: ${{ secrets.SDA_INTERNAL_API_KEY }}
+        run: |
+          MIN=$(date -u +%M)
+          if [ "$MIN" = "00" ]; then
+            curl -fsS -X POST -H "Authorization: Bearer $BEARER" \
+              --max-time 60 \
+              "https://smart-direct-agent-v3-production.up.railway.app/run/watchdog?dry_run=false" \
+              | python3 -c "import sys,json; r=json.load(sys.stdin); print('watchdog:', r.get('result',{}).get('status'), r.get('result',{}).get('stale_services'))"
+          else
+            echo "watchdog: skipped (minute=$MIN, runs only :00)"
+          fi
