@@ -50,7 +50,9 @@ def test_health_returns_200_with_db_ok() -> None:
             assert body["status"] == "ok"
             assert body["db"] == "ok"
             assert body["agents_count"] == 0
-            assert body["jobs_count"] == 0
+            # Task 28a: lifespan now reports JOB_REGISTRY size after building
+            # JobContext. 21 jobs across Wave 1 + Wave 2 protection layer.
+            assert body["jobs_count"] >= 1
             assert "version" in body
 
 

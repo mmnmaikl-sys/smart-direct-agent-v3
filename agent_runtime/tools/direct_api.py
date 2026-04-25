@@ -143,11 +143,28 @@ class DirectAPI:
     ======= =============================== =========================
     """
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        http_client: httpx.AsyncClient | None = None,
+    ) -> None:
+        """Construct a DirectAPI client.
+
+        Two usage modes (Task 28a DI integration):
+
+        * **Shared client (preferred for prod)** — pass ``http_client``
+          from the FastAPI lifespan. The instance is immediately usable
+          without ``async with`` and does not own the client lifecycle.
+        * **Standalone (tests / one-off scripts)** — omit ``http_client``;
+          enter ``async with DirectAPI(settings) as api:`` so the legacy
+          ``__aenter__`` path creates and closes its own client.
+        """
         self._settings = settings
         self._protected = frozenset(settings.PROTECTED_CAMPAIGN_IDS)
         self._base_url = settings.YANDEX_DIRECT_BASE_URL.rstrip("/")
-        self._client: httpx.AsyncClient | None = None
+        self._client: httpx.AsyncClient | None = http_client
+        # When a shared client is injected we don't own its lifecycle.
+        self._owns_client = http_client is None
         self._semaphore = asyncio.Semaphore(_RATE_LIMIT_CONCURRENCY)
         self._adgroup_to_campaign = _TTLMap()
 
@@ -165,10 +182,14 @@ class DirectAPI:
         }
 
     async def __aenter__(self) -> DirectAPI:
-        self._client = httpx.AsyncClient(
-            timeout=30.0,
-            headers=self._headers(),
-        )
+        # Standalone mode only — when a shared client was injected the
+        # instance is already ready and __aenter__ is a no-op.
+        if self._client is None:
+            self._client = httpx.AsyncClient(
+                timeout=30.0,
+                headers=self._headers(),
+            )
+            self._owns_client = True
         return self
 
     async def __aexit__(
@@ -177,7 +198,7 @@ class DirectAPI:
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> None:
-        if self._client is not None:
+        if self._client is not None and self._owns_client:
             await self._client.aclose()
             self._client = None
 
@@ -190,11 +211,15 @@ class DirectAPI:
 
         url = f"{self._base_url}/{service}"
         body = {"method": method, "params": params}
+        # Shared-client path doesn't have Direct headers baked in; inject
+        # per-request. Standalone __aenter__ client already has them on
+        # the client instance, so passing again is harmless.
+        per_request_headers = None if self._owns_client else self._headers()
 
         for attempt in range(1, _MAX_RETRIES + 1):
             try:
                 async with self._semaphore:
-                    response = await self._client.post(url, json=body)
+                    response = await self._client.post(url, json=body, headers=per_request_headers)
             except httpx.TransportError:
                 if attempt == _MAX_RETRIES:
                     raise UnknownDirectAPIError(
@@ -370,8 +395,9 @@ class DirectAPI:
                 "IncludeVAT": "NO",
             }
         }
+        per_request_headers = None if self._owns_client else self._headers()
         for attempt in range(10):
-            response = await self._client.post(url, json=body)
+            response = await self._client.post(url, json=body, headers=per_request_headers)
             if response.status_code == 200:
                 return {"tsv": response.text}
             if response.status_code in (201, 202):

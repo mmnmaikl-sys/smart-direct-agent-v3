@@ -21,6 +21,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import httpx
+from agents_core.llm.client import LLMClient
 from agents_core.memory.reflection import PGReflectionStore
 from fastapi import Depends, FastAPI, Request, status
 from fastapi.responses import JSONResponse
@@ -33,10 +34,13 @@ from agent_runtime.auth import (
     require_internal_key,
     verify_webhook_signature,
 )
+from agent_runtime.auth.signing import HMACSigner
 from agent_runtime.config import Settings, get_settings
 from agent_runtime.db import create_pool, db_ping, run_migrations
-from agent_runtime.jobs import JOB_REGISTRY, dispatch_job
+from agent_runtime.jobs import JOB_REGISTRY, JobContext, dispatch_job
 from agent_runtime.jobs.bfl_rf_lead_poller import LeadPoller, _lead_poller_loop
+from agent_runtime.tools.direct_api import DirectAPI
+from agent_runtime.tools.registry import build_registry
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +75,45 @@ def _make_lifespan(settings: Settings):
         logger.info(
             "lifespan startup: pool opened, reflections schema ok, migrations applied: %d",
             len(applied),
+        )
+
+        # Task 28a JobContext — build every shared resource ONCE so each
+        # cron-triggered job runs with full DI rather than the legacy
+        # ``degraded_noop`` fallback. DirectAPI uses the shared httpx
+        # client (no __aenter__ side-effect needed). LLMClient is built
+        # lazily by the brain when first invoked, but we plumb a singleton
+        # here so the registry + smart_optimizer share it.
+        direct = DirectAPI(settings, http_client=app.state.http_client)
+        try:
+            llm_client: LLMClient | None = LLMClient(
+                anthropic_api_key=settings.ANTHROPIC_API_KEY.get_secret_value(),
+                http_client=app.state.http_client,
+            )
+        except Exception:
+            # Missing/invalid key on import → run without brain; jobs that
+            # need it will degrade gracefully, others (watchdog,
+            # shadow_monitor, audit_retention, ...) keep working.
+            logger.warning(
+                "lifespan: LLMClient init failed; brain-dependent jobs will degrade",
+                exc_info=True,
+            )
+            llm_client = None
+        tool_registry = build_registry(settings, direct=direct, http_client=app.state.http_client)
+        signer = HMACSigner(settings.HYPOTHESIS_HMAC_SECRET)
+        app.state.job_ctx = JobContext(
+            settings=settings,
+            http_client=app.state.http_client,
+            direct=direct,
+            llm_client=llm_client,
+            tool_registry=tool_registry,
+            signer=signer,
+            reflection_store=reflection_store,
+        )
+        app.state.jobs_count = len(JOB_REGISTRY)
+        logger.info(
+            "lifespan startup: JobContext ready (jobs=%d, llm=%s)",
+            len(JOB_REGISTRY),
+            "ok" if llm_client is not None else "missing",
         )
 
         # Lead poller — in-process asyncio loop (Decision 9). Only started
@@ -145,7 +188,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 content={"status": "error", "detail": "DB pool not initialised"},
             )
-        result = await dispatch_job(job, pool, dry_run=dry_run)
+        ctx = getattr(request.app.state, "job_ctx", None)
+        result = await dispatch_job(job, pool, dry_run=dry_run, ctx=ctx)
         return JSONResponse({"status": "ok", "job": job, "executed": True, "result": result})
 
     @app.post("/webhook/bitrix")
