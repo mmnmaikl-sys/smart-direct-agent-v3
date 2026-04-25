@@ -118,20 +118,16 @@ async def run(
     )
 
     try:
-        # LLMClient.complete signature varies by version — try chat first
-        if hasattr(llm_client, "chat"):
-            advice = await llm_client.chat(
-                system=SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": user_prompt}],
-                model="claude-sonnet-4-6",
-                max_tokens=2000,
-            )
-        else:
-            advice = await llm_client.complete(
-                prompt=user_prompt, system=SYSTEM_PROMPT, max_tokens=2000
-            )
-        if isinstance(advice, dict):
-            advice = advice.get("content") or advice.get("text") or str(advice)
+        # agents_core.LLMClient.chat — prompt + system + model + max_tokens
+        # Возвращает LLMResponse с полем .text
+        response = await llm_client.chat(
+            prompt=user_prompt,
+            system=SYSTEM_PROMPT,
+            model="sonnet",
+            max_tokens=2000,
+            name="strategic_advisor.chat",
+        )
+        advice = response.text if hasattr(response, "text") else str(response)
     except Exception as exc:
         logger.exception("strategic_advisor: LLM call failed")
         return {"status": "error", "step": "llm", "detail": str(exc)}
