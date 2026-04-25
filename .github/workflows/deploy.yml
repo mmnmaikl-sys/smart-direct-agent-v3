@@ -49,8 +49,12 @@ jobs:
         run: |
           test -f requirements.lock
           pip install --require-hashes -r requirements.lock
-      - name: Install agents-core + project (no deps, hashed base already installed)
-        run: pip install --no-deps -e .
+      - name: Install agents-core + project
+        # agents-core is a git+ dependency (pinned by commit SHA in
+        # pyproject.toml) — it can't be hash-locked in requirements.lock.
+        # Drop --no-deps so its transitive deps land too. Hashed base is
+        # already installed; pip will skip already-satisfied wheels.
+        run: pip install -e .
       - name: pytest (final sanity check)
         # Test deps need their own transitive closure (pluggy, iniconfig, etc.) —
         # production lock is hashed, so we install test deps separately without
