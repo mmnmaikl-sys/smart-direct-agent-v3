@@ -59,7 +59,12 @@ jobs:
         # Test deps need their own transitive closure (pluggy, iniconfig, etc.) —
         # production lock is hashed, so we install test deps separately without
         # --no-deps. They're never shipped to Railway, only used in this CI step.
-        run: pip install pytest pytest-asyncio pytest-mock pytest-cov && pytest -v tests/unit/
+        # pytest-postgresql + pyyaml are imported by tests/unit/test_db.py and
+        # test_workflow_files.py respectively; tests skip live PG when pg_config
+        # is absent so the module just needs to import.
+        run: |
+          pip install pytest pytest-asyncio pytest-mock pytest-cov pytest-postgresql pyyaml
+          pytest -v tests/unit/
 
   deploy:
     name: Deploy to Railway
