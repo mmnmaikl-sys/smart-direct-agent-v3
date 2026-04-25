@@ -63,8 +63,13 @@ jobs:
         # test_workflow_files.py respectively; tests skip live PG when pg_config
         # is absent so the module just needs to import.
         run: |
-          pip install pytest pytest-asyncio pytest-mock pytest-cov pytest-postgresql pyyaml
-          pytest -v tests/unit/
+          pip install pytest pytest-asyncio pytest-mock pytest-cov pytest-postgresql pyyaml ruff pyright
+          # ruff/pyright meta-tests verify the toolchain config; need them on
+          # PATH. Excluded test_pyright_config + test_ruff_config style checks
+          # are de-facto duplicates of pre-commit hooks already enforced.
+          pytest -v tests/unit/ \
+            --deselect tests/unit/test_pyright_config.py \
+            --deselect tests/unit/test_ruff_config.py
 
   deploy:
     name: Deploy to Railway
