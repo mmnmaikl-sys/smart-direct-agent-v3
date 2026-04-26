@@ -89,15 +89,15 @@ jobs:
           sudo mv /tmp/railway /usr/local/bin/railway
           railway --version
       - name: Deploy
-        # RAILWAY_API_TOKEN (User/Account Token, prefix rw_) + RAILWAY_PROJECT_ID
-        # env var (CLI 4.x picks it up automatically; --project flag was added
-        # in newer versions only). Earlier RAILWAY_TOKEN env var requires a
-        # Project Token specifically; API Token + RAILWAY_PROJECT_ID env is
-        # the supported fallback for single-project deploys.
+        # RAILWAY_API_TOKEN (User/Account Token) needs an explicit `railway link`
+        # before `railway up` on CLI 4.10 — RAILWAY_PROJECT_ID env alone isn't
+        # picked up automatically. Project Tokens (RAILWAY_TOKEN) auto-resolve
+        # but require manual creation in Railway UI.
         env:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
-          RAILWAY_PROJECT_ID: ddff8a2c-a019-432a-a89b-bd91540ad947
-        run: railway up --service smart-direct-agent-v3 --detach
+        run: |
+          railway link --project ddff8a2c-a019-432a-a89b-bd91540ad947 --environment production --service smart-direct-agent-v3
+          railway up --service smart-direct-agent-v3 --detach
 
   smoke:
     name: Post-deploy smoke test
