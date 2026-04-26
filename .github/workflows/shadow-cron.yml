@@ -90,8 +90,9 @@ jobs:
           BEARER: ${{ secrets.SDA_INTERNAL_API_KEY }}
         run: |
           MIN=$(date -u +%M)
-          # Runs at :15 and :45 every hour (offset from shadow_monitor :00/:05/:10...)
-          if [ "$MIN" = "15" ] || [ "$MIN" = "45" ]; then
+          # Runs at :15 and :45 every hour (offset from shadow_monitor :00/:05/:10...).
+          # workflow_dispatch always fires it (manual smoke test).
+          if [ "$MIN" = "15" ] || [ "$MIN" = "45" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             curl -fsS --max-time 60 -X POST -H "Authorization: Bearer $BEARER" \
               "https://smart-direct-agent-v3-production.up.railway.app/run/main_campaigns_watchdog?dry_run=false" \
               | python3 -c "import sys,json; r=json.load(sys.stdin); print('main_watchdog:', r.get('result',{}))"
