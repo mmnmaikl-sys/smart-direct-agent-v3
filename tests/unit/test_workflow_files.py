@@ -34,12 +34,22 @@ def test_ci_workflow_has_all_steps() -> None:
 
 
 def test_deploy_workflow_uses_token_secret() -> None:
-    """RAILWAY_TOKEN must come from ${{ secrets.RAILWAY_TOKEN }}, never hardcoded."""
+    """Railway auth token must come from ${{ secrets.RAILWAY_* }}, never hardcoded.
+
+    Accepts either RAILWAY_TOKEN (Project Token) or RAILWAY_API_TOKEN (Account
+    Token + --project flag). Both come from GitHub secrets — the actual auth
+    type is an implementation detail of the deploy step.
+    """
     raw = DEPLOY_YML.read_text()
-    assert "${{ secrets.RAILWAY_TOKEN }}" in raw, "deploy.yml must reference secrets.RAILWAY_TOKEN"
+    has_project_token = "${{ secrets.RAILWAY_TOKEN }}" in raw
+    has_api_token = "${{ secrets.RAILWAY_API_TOKEN }}" in raw
+    assert (
+        has_project_token or has_api_token
+    ), "deploy.yml must reference either secrets.RAILWAY_TOKEN or secrets.RAILWAY_API_TOKEN"
     # Defense-in-depth: search for common hardcoding anti-patterns
-    assert 'RAILWAY_TOKEN="' not in raw, "RAILWAY_TOKEN must not be hardcoded (double-quoted)"
-    assert "RAILWAY_TOKEN='" not in raw, "RAILWAY_TOKEN must not be hardcoded (single-quoted)"
+    for var in ("RAILWAY_TOKEN", "RAILWAY_API_TOKEN"):
+        assert f'{var}="rw_' not in raw, f"{var} must not be hardcoded (double-quoted)"
+        assert f"{var}='rw_" not in raw, f"{var} must not be hardcoded (single-quoted)"
 
 
 def test_deploy_workflow_has_production_environment() -> None:
