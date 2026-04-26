@@ -39,3 +39,33 @@ jobs:
           else
             echo "watchdog: skipped (minute=$MIN, runs only :00)"
           fi
+
+      - name: strategic_advisor (every 4 hours at :00 — minute=00 + hour mod 4)
+        env:
+          BEARER: ${{ secrets.SDA_INTERNAL_API_KEY }}
+        run: |
+          MIN=$(date -u +%M)
+          HOUR=$(date -u +%H)
+          if [ "$MIN" = "00" ] && [ $((10#$HOUR % 4)) -eq 0 ]; then
+            curl -fsS -X POST -H "Authorization: Bearer $BEARER" \
+              --max-time 180 \
+              "https://smart-direct-agent-v3-production.up.railway.app/run/strategic_advisor?dry_run=false" \
+              | python3 -c "import sys,json; r=json.load(sys.stdin); print('strategic_advisor:', r.get('result',{}).get('status'), 'advice_chars=', r.get('result',{}).get('advice_chars'))"
+          else
+            echo "strategic_advisor: skipped (hour=$HOUR min=$MIN, runs only at :00 every 4h)"
+          fi
+
+      - name: tactical_actuator (every 4h at :05 — first autonomous DailyBudget actuator)
+        env:
+          BEARER: ${{ secrets.SDA_INTERNAL_API_KEY }}
+        run: |
+          MIN=$(date -u +%M)
+          HOUR=$(date -u +%H)
+          if [ "$MIN" = "05" ] && [ $((10#$HOUR % 4)) -eq 0 ]; then
+            curl -fsS -X POST -H "Authorization: Bearer $BEARER" \
+              --max-time 60 \
+              "https://smart-direct-agent-v3-production.up.railway.app/run/tactical_actuator?dry_run=false" \
+              | python3 -c "import sys,json; r=json.load(sys.stdin); print('tactical_actuator:', r.get('result',{}).get('status'), 'applied=', r.get('result',{}).get('applied'), '/', r.get('result',{}).get('actionable'))"
+          else
+            echo "tactical_actuator: skipped (hour=$HOUR min=$MIN, runs only at :05 every 4h)"
+          fi

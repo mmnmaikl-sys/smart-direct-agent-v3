@@ -82,6 +82,7 @@ from agent_runtime.jobs import (  # noqa: E402
     strategic_advisor,
     strategy_gate,
     strategy_switcher,
+    tactical_actuator,
     telegram_digest,
     watchdog,
 )
@@ -108,6 +109,7 @@ JOB_REGISTRY: dict[str, JobCallable] = {
     "shadow_monitor": shadow_monitor.run,
     "smart_optimizer": smart_optimizer.run,
     "strategic_advisor": strategic_advisor.run,
+    "tactical_actuator": tactical_actuator.run,
     "strategy_gate": strategy_gate.run,
     "strategy_switcher": strategy_switcher.run,
     "telegram_digest": telegram_digest.run,
