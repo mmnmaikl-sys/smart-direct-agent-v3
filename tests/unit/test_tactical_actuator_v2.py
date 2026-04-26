@@ -34,6 +34,7 @@ def _sig(
     cost_7d: float,
     leads_7d: int,
     bounce_pct: float | None,
+    age_days: int = 999,
 ) -> CampaignSignals:
     return CampaignSignals(
         cid=cid,
@@ -43,7 +44,78 @@ def _sig(
         cost_7d=cost_7d,
         leads_7d=leads_7d,
         bounce_pct=bounce_pct,
+        age_days=age_days,
     )
+
+
+# --- LEARNING_GUARD --------------------------------------------------------
+
+
+def test_learning_guard_blocks_starve_in_first_14_days() -> None:
+    """Campaign 5 days old — even with bad CPL+bounce, no starve."""
+    s = _sig(
+        709353034,
+        "pensioner",
+        daily_rub=1500,
+        clicks_7d=80,
+        cost_7d=160_000.0,  # CPL = 2000 (would normally trigger STARVE_RED)
+        leads_7d=80,
+        bounce_pct=70.0,
+        age_days=5,
+    )
+    d = decide_v2(s)
+    assert d.kind == "noop"
+    assert "LEARNING_GUARD" in d.reason
+
+
+def test_learning_guard_blocks_scale_in_first_14_days() -> None:
+    """Campaign 10 days old with great CPL — still no scale during learning."""
+    s = _sig(
+        709353005,
+        "rabotyaga",
+        daily_rub=300,
+        clicks_7d=80,
+        cost_7d=24_000.0,  # CPL = 300 (would normally trigger SCALE_GREEN)
+        leads_7d=80,
+        bounce_pct=30.0,
+        age_days=10,
+    )
+    d = decide_v2(s)
+    assert d.kind == "noop"
+    assert "LEARNING_GUARD" in d.reason
+
+
+def test_learning_guard_does_NOT_block_early_kill() -> None:
+    """100+ clicks, 0 leads, bounce>60 — junk-traffic protection stays even
+    during learning. Saving budget > preserving bid model on junk."""
+    s = _sig(
+        709353078,
+        "mfo",
+        daily_rub=300,
+        clicks_7d=120,
+        cost_7d=8000.0,
+        leads_7d=0,
+        bounce_pct=72.0,
+        age_days=3,  # very young campaign
+    )
+    d = decide_v2(s)
+    assert d.kind == "early_kill"
+
+
+def test_learning_guard_lifts_after_14_days() -> None:
+    """Same bad CPL+bounce on 15-day campaign → STARVE_RED fires normally."""
+    s = _sig(
+        709353034,
+        "pensioner",
+        daily_rub=1500,
+        clicks_7d=80,
+        cost_7d=160_000.0,
+        leads_7d=80,
+        bounce_pct=70.0,
+        age_days=15,
+    )
+    d = decide_v2(s)
+    assert d.kind == "starve"
 
 
 # --- EARLY_KILL_SWITCH ------------------------------------------------------

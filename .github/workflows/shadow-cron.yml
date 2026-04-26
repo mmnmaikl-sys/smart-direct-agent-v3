@@ -55,34 +55,36 @@ jobs:
             echo "strategic_advisor: skipped (hour=$HOUR min=$MIN, runs only at :00 every 4h)"
           fi
 
-      - name: ad_rewriter (weekly Mon at 13:30 UTC — 16:30 МСК — Sonnet rewrite top-3)
+      - name: ad_rewriter (DAILY at 13:30 UTC — 16:30 МСК — Sonnet rewrite top-3)
         env:
           BEARER: ${{ secrets.SDA_INTERNAL_API_KEY }}
         run: |
           MIN=$(date -u +%M)
           HOUR=$(date -u +%H)
-          DOW=$(date -u +%u)
-          if [ "$DOW" = "1" ] && [ "$HOUR" = "13" ] && [ "$MIN" = "30" ]; then
+          # 26.04.2026: weekly→daily. Cost cap ~$0.05/cycle × 7 = ~$0.35/week.
+          # Faster reaction to low-CTR ads = less budget burn on bad creatives.
+          if [ "$HOUR" = "13" ] && [ "$MIN" = "30" ]; then
             curl -fsS --max-time 120 -X POST -H "Authorization: Bearer $BEARER" \
               "https://smart-direct-agent-v3-production.up.railway.app/run/ad_rewriter?dry_run=false" \
               | python3 -c "import sys,json; r=json.load(sys.stdin); print('ad_rewriter:', r.get('result',{}))"
           else
-            echo "ad_rewriter: skipped (DOW=$DOW hour=$HOUR min=$MIN, runs Mon 13:30 UTC)"
+            echo "ad_rewriter: skipped (hour=$HOUR min=$MIN, runs daily 13:30 UTC)"
           fi
 
-      - name: landing_critic (weekly Mon at 13:00 UTC — 16:00 МСК)
+      - name: landing_critic (DAILY at 13:00 UTC — 16:00 МСК)
         env:
           BEARER: ${{ secrets.SDA_INTERNAL_API_KEY }}
         run: |
           MIN=$(date -u +%M)
           HOUR=$(date -u +%H)
-          DOW=$(date -u +%u)
-          if [ "$DOW" = "1" ] && [ "$HOUR" = "13" ] && [ "$MIN" = "00" ]; then
+          # 26.04.2026: weekly→daily. HTML check, no LLM cost — fast feedback
+          # on broken landing structure, missing FZ-38 disclaimer, etc.
+          if [ "$HOUR" = "13" ] && [ "$MIN" = "00" ]; then
             curl -fsS --max-time 60 -X POST -H "Authorization: Bearer $BEARER" \
               "https://smart-direct-agent-v3-production.up.railway.app/run/landing_critic?dry_run=false" \
               | python3 -c "import sys,json; r=json.load(sys.stdin); print('landing_critic:', r.get('result',{}).get('verdicts'))"
           else
-            echo "landing_critic: skipped (DOW=$DOW hour=$HOUR min=$MIN, runs Mon 13:00 UTC)"
+            echo "landing_critic: skipped (hour=$HOUR min=$MIN, runs daily 13:00 UTC)"
           fi
 
       - name: main_campaigns_watchdog (DISABLED 26.04.2026 — owner suspended ЕПК campaigns)
@@ -145,6 +147,34 @@ jobs:
               | python3 -c "import sys,json; r=json.load(sys.stdin); print('settings_reconciler:', r.get('result',{}))"
           else
             echo "settings_reconciler: skipped (hour=$HOUR min=$MIN, runs daily 12:00 UTC)"
+          fi
+
+      - name: pre_launch_validator (daily at 11:30 UTC — 14:30 МСК — landing health gate)
+        env:
+          BEARER: ${{ secrets.SDA_INTERNAL_API_KEY }}
+        run: |
+          MIN=$(date -u +%M)
+          HOUR=$(date -u +%H)
+          if [ "$MIN" = "30" ] && [ "$HOUR" = "11" ]; then
+            curl -fsS --max-time 180 -X POST -H "Authorization: Bearer $BEARER" \
+              "https://smart-direct-agent-v3-production.up.railway.app/run/pre_launch_validator?dry_run=false" \
+              | python3 -c "import sys,json; r=json.load(sys.stdin); print('pre_launch:', r.get('result',{}))"
+          else
+            echo "pre_launch: skipped (hour=$HOUR min=$MIN, runs daily 11:30 UTC)"
+          fi
+
+      - name: lead_quality_uploader (daily at 07:30 UTC — 10:30 МСК — ЕПК/junk → Metrika)
+        env:
+          BEARER: ${{ secrets.SDA_INTERNAL_API_KEY }}
+        run: |
+          MIN=$(date -u +%M)
+          HOUR=$(date -u +%H)
+          if [ "$MIN" = "30" ] && [ "$HOUR" = "07" ]; then
+            curl -fsS --max-time 60 -X POST -H "Authorization: Bearer $BEARER" \
+              "https://smart-direct-agent-v3-production.up.railway.app/run/lead_quality_uploader?dry_run=false" \
+              | python3 -c "import sys,json; r=json.load(sys.stdin); print('lead_quality:', r.get('result',{}))"
+          else
+            echo "lead_quality: skipped (hour=$HOUR min=$MIN, runs daily 07:30 UTC)"
           fi
 
       - name: tactical_actuator (every 4h at :05 — first autonomous DailyBudget actuator)

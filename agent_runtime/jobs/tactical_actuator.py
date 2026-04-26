@@ -106,6 +106,7 @@ class CampaignSignals:
     cost_7d: float
     leads_7d: int
     bounce_pct: float | None
+    age_days: int = 999  # campaign age since StartDate; default = "old enough"
 
 
 # v2 thresholds — derived from Deep Research 2026-04 (БФЛ benchmarks).
@@ -118,6 +119,13 @@ _V2_SCALE_CPL_RUB = 800.0  # vc.ru benchmark = 625-684, headroom to 800
 _V2_SCALE_BOUNCE_PCT = 40.0
 _V2_SCALE_FACTOR = 1.30
 _V2_STARVE_FACTOR = 0.50
+
+# LEARNING_GUARD — Yandex Direct auto-strategy needs ~14 days + 10 conv/week
+# to converge. Touching DailyBudget mid-learning resets the bid model. So
+# during the first 14 days we only allow EARLY_KILL (true junk-traffic
+# protection) and otherwise NOOP — even if CPL/bounce look bad on day 5.
+# eLama 2026: "5 причин не отключать кампании в первые 2 недели".
+_LEARNING_GUARD_DAYS = 14
 
 
 def _ctr_pct(impressions: int, clicks: int) -> float:
@@ -200,7 +208,10 @@ def decide_v2(s: CampaignSignals) -> Decision:
     """
     cpl: float | None = (s.cost_7d / s.leads_7d) if s.leads_7d > 0 else None
 
-    # 1. EARLY_KILL_SWITCH — owner's 03.04 pattern
+    # 1. EARLY_KILL_SWITCH — owner's 03.04 pattern. Allowed even during
+    # learning window: 100+ clicks with 0 Bitrix leads + bounce>60% is
+    # unambiguous junk traffic — saving the budget outweighs the risk of
+    # disturbing strategy learning.
     if (
         s.clicks_7d >= _V2_EARLY_KILL_CLICKS
         and s.leads_7d == 0
@@ -216,6 +227,23 @@ def decide_v2(s: CampaignSignals) -> Decision:
             reason=(
                 f"EARLY_KILL: {s.clicks_7d} clicks, 0 leads, "
                 f"bounce={s.bounce_pct:.0f}% — мусорный трафик, drop to floor"
+            ),
+        )
+
+    # 2. LEARNING_GUARD — within 14d of campaign start, do NOT scale or
+    # starve. Yandex Direct auto-strategy needs the full 14d window with
+    # a stable budget to converge; mid-learning DailyBudget changes reset
+    # the bid model and make CPA worse, not better.
+    if s.age_days < _LEARNING_GUARD_DAYS:
+        return Decision(
+            cid=s.cid,
+            name=s.name,
+            kind="noop",
+            current_daily_rub=s.daily_rub,
+            new_daily_rub=s.daily_rub,
+            reason=(
+                f"LEARNING_GUARD: campaign age {s.age_days}d < "
+                f"{_LEARNING_GUARD_DAYS}d — не трогаем обучение стратегии"
             ),
         )
 
@@ -438,24 +466,33 @@ async def _collect_signals(
     today = datetime.now(UTC).date().isoformat()
     week_ago = (datetime.now(UTC).date() - timedelta(days=7)).isoformat()
 
-    # 1. DailyBudget — explicit FieldNames so we actually get the field
+    # 1. DailyBudget + StartDate — explicit FieldNames so we actually get them.
+    # StartDate is needed for LEARNING_GUARD (no scale/starve in first 14d).
     daily_by_cid: dict[int, int] = {}
     name_by_cid: dict[int, str] = {}
+    age_by_cid: dict[int, int] = {}
+    today_utc = datetime.now(UTC).date()
     try:
         camps_raw = await direct._call(  # noqa: SLF001
             "campaigns",
             "get",
             {
                 "SelectionCriteria": {"Ids": cids},
-                "FieldNames": ["Id", "Name", "DailyBudget"],
+                "FieldNames": ["Id", "Name", "DailyBudget", "StartDate"],
             },
         )
         for c in camps_raw.get("Campaigns") or []:
             cid = int(c.get("Id", 0))
             daily_by_cid[cid] = int((c.get("DailyBudget") or {}).get("Amount", 0)) // _MICRO
             name_by_cid[cid] = str(c.get("Name") or "")
+            start_str = c.get("StartDate") or ""
+            try:
+                start = datetime.strptime(start_str, "%Y-%m-%d").date()
+                age_by_cid[cid] = max(0, (today_utc - start).days)
+            except (ValueError, TypeError):
+                age_by_cid[cid] = 999  # unknown start = treat as old (no guard)
     except Exception:
-        logger.exception("tactical_actuator: DailyBudget fetch failed")
+        logger.exception("tactical_actuator: DailyBudget/StartDate fetch failed")
 
     # 2. 7d Direct stats per cid (clicks + cost). Use existing helper from
     # bitrix_feedback if available; here we replicate minimal contract.
@@ -491,6 +528,7 @@ async def _collect_signals(
                 cost_7d=cost_by_cid.get(cid, 0.0),
                 leads_7d=leads_by_cid.get(cid, 0),
                 bounce_pct=bounce_by_cid.get(cid),
+                age_days=age_by_cid.get(cid, 999),
             )
         )
     return signals
