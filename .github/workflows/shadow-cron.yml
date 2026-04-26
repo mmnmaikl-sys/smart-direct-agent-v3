@@ -55,6 +55,21 @@ jobs:
             echo "strategic_advisor: skipped (hour=$HOUR min=$MIN, runs only at :00 every 4h)"
           fi
 
+      - name: ad_rewriter (weekly Mon at 13:30 UTC — 16:30 МСК — Sonnet rewrite top-3)
+        env:
+          BEARER: ${{ secrets.SDA_INTERNAL_API_KEY }}
+        run: |
+          MIN=$(date -u +%M)
+          HOUR=$(date -u +%H)
+          DOW=$(date -u +%u)
+          if [ "$DOW" = "1" ] && [ "$HOUR" = "13" ] && [ "$MIN" = "30" ]; then
+            curl -fsS --max-time 120 -X POST -H "Authorization: Bearer $BEARER" \
+              "https://smart-direct-agent-v3-production.up.railway.app/run/ad_rewriter?dry_run=false" \
+              | python3 -c "import sys,json; r=json.load(sys.stdin); print('ad_rewriter:', r.get('result',{}))"
+          else
+            echo "ad_rewriter: skipped (DOW=$DOW hour=$HOUR min=$MIN, runs Mon 13:30 UTC)"
+          fi
+
       - name: landing_critic (weekly Mon at 13:00 UTC — 16:00 МСК)
         env:
           BEARER: ${{ secrets.SDA_INTERNAL_API_KEY }}
