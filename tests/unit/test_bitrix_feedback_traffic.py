@@ -29,8 +29,17 @@ def test_compute_split_own_only() -> None:
     )
 
     assert payload["snapshot_at"] == _TS
+    # leads/cpl fields added 26.04.2026; traffic_split now also stores
+    # Bitrix lead counts so tactical_actuator decision rules from Deep
+    # Research can use real CPL (not just CPA-on-won).
     assert payload["own"] == {
-        "709353005": {"won": 3, "cost_rub": 4500.0, "cpa_won": 1500.0},
+        "709353005": {
+            "won": 3,
+            "leads": 0,
+            "cost_rub": 4500.0,
+            "cpa_won": 1500.0,
+            "cpl": None,
+        },
     }
     assert payload["contractor_aggregate"] == {"won": 0, "by_campaign_id": {}}
     assert payload["organic_aggregate"] == {"won": 0}
@@ -126,6 +135,60 @@ def test_compute_split_window_hours_default() -> None:
         captured_at=_TS,
     )
     assert payload["window_hours"] == 7 * 24  # 7-day window like the rest of bitrix_feedback
+
+
+def test_compute_split_leads_alongside_won_with_cpl() -> None:
+    """26.04.2026: leads + cpl land in own[cid] alongside won + cpa_won.
+
+    Decision rules from director_metrics_2026-04 expect CPL (cost / leads),
+    not just CPA-on-won — leads land within hours of click whereas won lags
+    3-14d.
+    """
+    payload = _compute_traffic_split(
+        own_won_by_cid={709353005: 1},
+        own_spend_by_cid={709353005: 1500.0},
+        contractor_won_by_cid={},
+        organic_won=0,
+        captured_at=_TS,
+        own_leads_by_cid={709353005: 5},
+    )
+    own = payload["own"]["709353005"]
+    assert own["won"] == 1
+    assert own["leads"] == 5
+    assert own["cost_rub"] == 1500.0
+    assert own["cpa_won"] == 1500.0  # 1500 / 1 won
+    assert own["cpl"] == 300.0  # 1500 / 5 leads
+
+
+def test_compute_split_leads_only_no_won_yet() -> None:
+    """Cold campaign: leads=2, won=0 (won lag) — CPL valid, CPA None."""
+    payload = _compute_traffic_split(
+        own_won_by_cid={},
+        own_spend_by_cid={709353005: 1000.0},
+        contractor_won_by_cid={},
+        organic_won=0,
+        captured_at=_TS,
+        own_leads_by_cid={709353005: 2},
+    )
+    own = payload["own"]["709353005"]
+    assert own["won"] == 0
+    assert own["leads"] == 2
+    assert own["cpa_won"] is None  # no won yet
+    assert own["cpl"] == 500.0  # 1000 / 2
+
+
+def test_compute_split_leads_optional_param_default() -> None:
+    """own_leads_by_cid omitted → leads=0, cpl=0 when spend=0 / None when spend>0."""
+    payload = _compute_traffic_split(
+        own_won_by_cid={709353005: 1},
+        own_spend_by_cid={709353005: 1500.0},
+        contractor_won_by_cid={},
+        organic_won=0,
+        captured_at=_TS,
+    )
+    own = payload["own"]["709353005"]
+    assert own["leads"] == 0
+    assert own["cpl"] is None  # spend>0 + leads=0 → unknown CPL
 
 
 def test_compute_split_window_hours_override() -> None:

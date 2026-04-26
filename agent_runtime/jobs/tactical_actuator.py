@@ -88,10 +88,10 @@ class CampaignSignals:
       * daily_rub  → DirectAPI.get_campaigns DailyBudget
       * clicks_7d  → DirectAPI.get_campaign_stats(date-7d, today) Clicks
       * cost_7d    → DirectAPI.get_campaign_stats(...) Cost
-      * leads_7d   → sda_state[bitrix_feedback_traffic_split].own[cid].won
-                     (NB: today this is "won" not "leads" — granular leads
-                     pending Task 02 v2; "won" is conservative — actual
-                     leads are higher)
+      * leads_7d   → sda_state[bitrix_feedback_traffic_split].own[cid].leads
+                     (real Bitrix crm.lead.list count, 26.04.2026+;
+                     falls back to .won for stale snapshots — see
+                     _fetch_leads_per_cid)
       * bounce_pct → Metrika ym:s:bounceRate via lastDirectClickOrder
 
     bounce_pct=None means Metrika returned no data for this cid (cold
@@ -537,7 +537,14 @@ def _parse_tsv_clicks_cost(tsv: str) -> tuple[int, float]:
 
 
 async def _fetch_leads_per_cid(pool: AsyncConnectionPool) -> dict[int, int]:
-    """Read sda_state[bitrix_feedback_traffic_split].own[cid].won."""
+    """Read sda_state[bitrix_feedback_traffic_split].own[cid].leads.
+
+    Prefer the ``leads`` field (real Bitrix lead count, no won-lag) added
+    2026-04-26. Fall back to ``won`` for snapshots written by older
+    bitrix_feedback versions — keeps the actuator running through the
+    deploy gap without crashes. After 1-2 days the new snapshot replaces
+    the old one and the fallback path becomes dead.
+    """
     try:
         async with pool.connection() as conn:
             async with conn.cursor() as cur:
@@ -570,7 +577,10 @@ async def _fetch_leads_per_cid(pool: AsyncConnectionPool) -> dict[int, int]:
         except (TypeError, ValueError):
             continue
         if isinstance(info, dict):
-            out[cid] = int(info.get("won", 0) or 0)
+            value = info.get("leads")
+            if value is None:
+                value = info.get("won", 0)
+            out[cid] = int(value or 0)
     return out
 
 

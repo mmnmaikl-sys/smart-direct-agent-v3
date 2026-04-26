@@ -414,6 +414,7 @@ def _compute_traffic_split(
     organic_won: int,
     captured_at: str,
     window_hours: int = 7 * 24,
+    own_leads_by_cid: dict[int, int] | None = None,
 ) -> dict[str, Any]:
     """Build the ``sda_state[bitrix_feedback_traffic_split]`` snapshot.
 
@@ -424,12 +425,22 @@ def _compute_traffic_split(
     Bitrix; ``organic`` lacks UTM_CAMPAIGN entirely so only an aggregate
     count makes sense.
 
+    ``own_leads_by_cid`` (added 26.04.2026) is the count of Bitrix
+    ``crm.lead.list`` rows over the same 7d window grouped by cid. Stored
+    alongside ``won`` because ``tactical_actuator`` decision rules from
+    Deep Research expect *leads* (CPL = cost / leads, EARLY_KILL_SWITCH
+    on 0 leads), not *won deals* — won lags 3-14d behind lead.
+
     ``cpa_won`` is ``None`` when ``won == 0`` to avoid silent
     division-by-zero — callers (owner-report) must render this as `—`,
     not as a zero CPA.
     """
+    leads_map = own_leads_by_cid or {}
+    all_cids: set[int] = set(own_won_by_cid) | set(leads_map)
     own_block: dict[str, Any] = {}
-    for cid, won in own_won_by_cid.items():
+    for cid in all_cids:
+        won = int(own_won_by_cid.get(cid, 0))
+        leads = int(leads_map.get(cid, 0))
         spend = float(own_spend_by_cid.get(cid, 0.0))
         cpa_won: float | None
         if won > 0:
@@ -438,10 +449,19 @@ def _compute_traffic_split(
             cpa_won = 0.0
         else:
             cpa_won = None
+        cpl: float | None
+        if leads > 0:
+            cpl = spend / leads
+        elif spend == 0.0:
+            cpl = 0.0
+        else:
+            cpl = None
         own_block[str(cid)] = {
-            "won": int(won),
+            "won": won,
+            "leads": leads,
             "cost_rub": spend,
             "cpa_won": cpa_won,
+            "cpl": cpl,
         }
 
     contractor_block = {
@@ -699,18 +719,48 @@ async def run(
                 elif source == "contractor":
                     contractor_won_by_cid[cid] = won_count
                 # source == "organic" is impossible: cid is non-None here
+
+            # Bitrix LEADS for the same 7d window — leads land within hours of
+            # the click; won lags 3-14d. Decision rules from Deep Research
+            # expect leads (CPL, EARLY_KILL_SWITCH on 0 leads).
+            own_leads_by_cid: dict[int, int] = {}
+            try:
+                leads_raw = await bitrix_tools.get_lead_list(
+                    bitrix_client,
+                    settings,
+                    filter={">=DATE_CREATE": period_from.isoformat()},
+                    select=["ID", "UTM_CAMPAIGN", "UTM_SOURCE", "DATE_CREATE"],
+                )
+                for lead in leads_raw or []:
+                    if not isinstance(lead, dict):
+                        continue
+                    if not _is_yandex_source(lead.get("UTM_SOURCE")):
+                        continue
+                    cid = _extract_campaign_id(lead.get("UTM_CAMPAIGN"))
+                    if cid is None:
+                        continue
+                    src = await traffic_source.classify(cid, api=direct)
+                    if src != "own":
+                        continue
+                    own_leads_by_cid[cid] = own_leads_by_cid.get(cid, 0) + 1
+            except Exception:
+                logger.exception("bitrix_feedback: get_lead_list failed (leads=0)")
+
+            all_own_cids = set(own_won_by_cid) | set(own_leads_by_cid)
             split_payload = _compute_traffic_split(
                 own_won_by_cid=own_won_by_cid,
-                own_spend_by_cid={c: spend_per_campaign.get(c, 0.0) for c in own_won_by_cid},
+                own_spend_by_cid={c: spend_per_campaign.get(c, 0.0) for c in all_own_cids},
                 contractor_won_by_cid=contractor_won_by_cid,
                 organic_won=organic_won,
                 captured_at=now_iso,
                 window_hours=_WON_WINDOW_DAYS * 24,
+                own_leads_by_cid=own_leads_by_cid,
             )
             await _upsert_sda_state(pool, _TRAFFIC_SPLIT_KEY, split_payload)
             logger.info(
-                "bitrix_feedback: traffic_split own=%d contractor=%d organic=%d",
+                "bitrix_feedback: traffic_split own_won=%d own_leads=%d contractor=%d organic=%d",
                 len(own_won_by_cid),
+                sum(own_leads_by_cid.values()),
                 len(contractor_won_by_cid),
                 organic_won,
             )
