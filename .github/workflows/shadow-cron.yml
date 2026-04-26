@@ -133,6 +133,20 @@ jobs:
             echo "ad_quality: skipped (hour=$HOUR min=$MIN, runs daily 12:10 UTC)"
           fi
 
+      - name: settings_reconciler (daily at 12:00 UTC — 15:00 МСК — diff live vs reference)
+        env:
+          BEARER: ${{ secrets.SDA_INTERNAL_API_KEY }}
+        run: |
+          MIN=$(date -u +%M)
+          HOUR=$(date -u +%H)
+          if [ "$MIN" = "00" ] && [ "$HOUR" = "12" ]; then
+            curl -fsS --max-time 60 -X POST -H "Authorization: Bearer $BEARER" \
+              "https://smart-direct-agent-v3-production.up.railway.app/run/settings_reconciler?dry_run=false" \
+              | python3 -c "import sys,json; r=json.load(sys.stdin); print('settings_reconciler:', r.get('result',{}))"
+          else
+            echo "settings_reconciler: skipped (hour=$HOUR min=$MIN, runs daily 12:00 UTC)"
+          fi
+
       - name: tactical_actuator (every 4h at :05 — first autonomous DailyBudget actuator)
         env:
           BEARER: ${{ secrets.SDA_INTERNAL_API_KEY }}

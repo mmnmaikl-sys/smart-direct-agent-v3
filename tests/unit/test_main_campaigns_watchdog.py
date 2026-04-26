@@ -44,9 +44,10 @@ def test_suspended_moderation_alerts_only() -> None:
     assert "модер" in s.alert_reason.lower()
 
 
-def test_known_main_cid_gets_friendly_name() -> None:
+def test_empty_whitelist_falls_back_to_str_name() -> None:
+    # Watchdog disabled 26.04.2026 — whitelist emptied, all cids get str name.
     s = assess_main(_camp("ON", cid=708978456))
-    assert "Башкортостан" in s.name
+    assert s.name == "708978456"
 
 
 def test_unknown_cid_gets_str_name() -> None:
