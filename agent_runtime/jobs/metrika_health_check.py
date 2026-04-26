@@ -125,13 +125,22 @@ async def _fetch_per_cid(
     *,
     counter: str,
     token: str,
-    goal_id: int,
+    goal_ids: list[int],
     date_from: str,
     date_to: str,
 ) -> dict[int, dict[str, float]]:
+    """Per-cid {visits, bounce, goals} where goals = sum across all goal_ids.
+
+    Composite goal 549152162 catches quiz + form + phone_click but NOT
+    Novofon Call (549163547). Summing both gives full conversions across
+    all 4 channels (квиз + form + phone-click + real call).
+    """
+    if not goal_ids:
+        return {}
+    goal_metrics = ",".join(f"ym:s:goal{gid}reaches" for gid in goal_ids)
     params = {
         "ids": str(counter),
-        "metrics": f"ym:s:visits,ym:s:bounceRate,ym:s:goal{goal_id}reaches",
+        "metrics": f"ym:s:visits,ym:s:bounceRate,{goal_metrics}",
         "dimensions": "ym:s:lastDirectClickOrder",
         "date1": date_from,
         "date2": date_to,
@@ -153,13 +162,15 @@ async def _fetch_per_cid(
     for row in data.get("data") or []:
         dims = row.get("dimensions") or []
         m = row.get("metrics") or []
-        if not dims or len(m) < 3:
+        if not dims or len(m) < 2 + len(goal_ids):
             continue
         try:
             cid = int(dims[0].get("id"))
         except (TypeError, ValueError):
             continue
-        out[cid] = {"visits": float(m[0]), "bounce": float(m[1]), "goals": float(m[2])}
+        # m[0]=visits, m[1]=bounce, m[2..]=each goal's reaches
+        goals_sum = sum(float(m[2 + i]) for i in range(len(goal_ids)))
+        out[cid] = {"visits": float(m[0]), "bounce": float(m[1]), "goals": goals_sum}
     return out
 
 
@@ -184,12 +195,23 @@ async def run(
 
     counter = str(getattr(settings, "METRIKA_COUNTER_ID", "") or "")
     token = _resolve_secret(getattr(settings, "METRIKA_OAUTH_TOKEN", None))
-    goal_id_raw = getattr(settings, "GOAL_ID", 0)
-    try:
-        goal_id = int(goal_id_raw)
-    except (TypeError, ValueError):
-        goal_id = 0
-    if not counter or not token or not goal_id:
+
+    # GOAL_ID + optional CALL_GOAL_ID — sum of conversions across both.
+    # Composite (549152162) covers reachGoal events (quiz, form, phone_click);
+    # CALL_GOAL_ID (549163547) covers actual calls registered by Novofon
+    # call-tracking integration. Together they give full attribution.
+    raw_ids: list[int] = []
+    for var in ("GOAL_ID", "CALL_GOAL_ID"):
+        v = getattr(settings, var, None)
+        if v is None:
+            continue
+        try:
+            n = int(v)
+            if n > 0:
+                raw_ids.append(n)
+        except (TypeError, ValueError):
+            continue
+    if not counter or not token or not raw_ids:
         return {
             "status": "ok",
             "action": "degraded_noop",
@@ -204,7 +226,7 @@ async def run(
         http_client,
         counter=counter,
         token=token,
-        goal_id=goal_id,
+        goal_ids=raw_ids,
         date_from=date_from,
         date_to=today,
     )
@@ -212,7 +234,11 @@ async def run(
     health = assess_health(rows)
     broken_count = sum(1 for h in health if h.is_broken)
 
-    msg = _format_report(health, goal_id=goal_id, window_days=_WINDOW_DAYS)
+    msg = _format_report(
+        health,
+        goal_id=raw_ids[0] if raw_ids else 0,
+        window_days=_WINDOW_DAYS,
+    )
     if not dry_run:
         try:
             await telegram_tools.send_message(http_client, settings, text=msg, parse_mode="HTML")
