@@ -89,13 +89,10 @@ jobs:
           sudo mv /tmp/railway /usr/local/bin/railway
           railway --version
       - name: Deploy
-        # Both secrets in this repo (RAILWAY_TOKEN, RAILWAY_API_TOKEN) are
-        # User/Account tokens, not Project tokens. CLI 4.10 with User Token
-        # auto-resolves the project when RAILWAY_PROJECT_ID env is set —
-        # without needing `railway link` (which kept returning Unauthorized).
+        # RAILWAY_TOKEN — Project Token (rotated 2026-04-26). Auto-resolves
+        # project/environment from token; no `railway link` step required.
         env:
-          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
-          RAILWAY_PROJECT_ID: ddff8a2c-a019-432a-a89b-bd91540ad947
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: |
           railway up --service smart-direct-agent-v3 --detach
 
