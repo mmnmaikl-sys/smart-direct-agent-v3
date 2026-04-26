@@ -51,6 +51,10 @@ class JobContext:
     # selectively-DI'd by dispatch_job's signature inspection.
     bitrix_client: httpx.AsyncClient | None = None
     direct: DirectAPI | None = None
+    # query_analyzer needs SEARCH_QUERY_PERFORMANCE_REPORT — exposed via the
+    # adapter Protocol _QueryReportFetcher; lifespan wires
+    # DirectReportAdapter(http_client, settings) here.
+    direct_report: Any = None
     llm_client: LLMClient | None = None
     tool_registry: ToolRegistry | None = None
     signer: HMACSigner | None = None
@@ -127,6 +131,7 @@ JOB_REGISTRY: dict[str, JobCallable] = {
 
 _DI_FIELDS: tuple[str, ...] = (
     "direct",
+    "direct_report",
     "http_client",
     "bitrix_client",
     "settings",

@@ -100,11 +100,15 @@ def _make_lifespan(settings: Settings):
             llm_client = None
         tool_registry = build_registry(settings, direct=direct, http_client=app.state.http_client)
         signer = HMACSigner(settings.HYPOTHESIS_HMAC_SECRET)
+        from agent_runtime.tools.direct_reports import DirectReportAdapter
+
+        direct_report = DirectReportAdapter(app.state.http_client, settings)
         app.state.job_ctx = JobContext(
             settings=settings,
             http_client=app.state.http_client,
             bitrix_client=app.state.http_client,
             direct=direct,
+            direct_report=direct_report,
             llm_client=llm_client,
             tool_registry=tool_registry,
             signer=signer,
