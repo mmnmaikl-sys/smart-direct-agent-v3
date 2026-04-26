@@ -85,20 +85,11 @@ jobs:
             echo "landing_critic: skipped (DOW=$DOW hour=$HOUR min=$MIN, runs Mon 13:00 UTC)"
           fi
 
-      - name: main_campaigns_watchdog (every 30 min — auto-resume SUSPENDED main cids)
-        env:
-          BEARER: ${{ secrets.SDA_INTERNAL_API_KEY }}
+      - name: main_campaigns_watchdog (DISABLED 26.04.2026 — owner suspended ЕПК campaigns)
         run: |
-          MIN=$(date -u +%M)
-          # Runs at :15 and :45 every hour (offset from shadow_monitor :00/:05/:10...).
-          # workflow_dispatch always fires it (manual smoke test).
-          if [ "$MIN" = "15" ] || [ "$MIN" = "45" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            curl -fsS --max-time 60 -X POST -H "Authorization: Bearer $BEARER" \
-              "https://smart-direct-agent-v3-production.up.railway.app/run/main_campaigns_watchdog?dry_run=false" \
-              | python3 -c "import sys,json; r=json.load(sys.stdin); print('main_watchdog:', r.get('result',{}))"
-          else
-            echo "main_watchdog: skipped (min=$MIN, runs :15 and :45)"
-          fi
+          echo "main_watchdog: permanently disabled (owner decision 26.04.2026, Variant 1)."
+          echo "Whitelist in agent_runtime/jobs/main_campaigns_watchdog.py is empty."
+          echo "Re-enable: restore _MAIN_CAMPAIGNS dict + cron step. Requires owner approval."
 
       - name: funnel_cr_tracker (daily at 14:30 UTC — 17:30 МСК, real Bitrix funnel)
         env:

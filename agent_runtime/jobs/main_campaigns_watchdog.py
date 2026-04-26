@@ -44,11 +44,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-_MAIN_CAMPAIGNS: dict[int, str] = {
-    708978456: "БФЛ — Башкортостан",
-    708978457: "БФЛ — Татарстан",
-    708978458: "БФЛ — Удмуртия",
-}
+_MAIN_CAMPAIGNS: dict[int, str] = {}
+# 26.04.2026: ЕПК-кампании 708978456/7/8 заглушены владельцем (Вариант 1 аудита).
+# Ранее watchdog воскрешал их вопреки решению — поведение отключено через пустой whitelist.
+# См. memory/feedback_sda2_campaigns_disabled.md.
 
 
 @dataclass(frozen=True)
