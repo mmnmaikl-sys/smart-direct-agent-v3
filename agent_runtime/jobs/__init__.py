@@ -102,6 +102,7 @@ JOB_REGISTRY: dict[str, JobCallable] = {
     "learner": learner.run,
     "lead_poller": bfl_rf_lead_poller.run,
     "offline_conversions": offline_conversions.run,
+    "owner_report": telegram_digest.run_owner_report,
     "query_analyzer": query_analyzer.run,
     "regression_watch": regression_watch.run,
     "shadow_monitor": shadow_monitor.run,

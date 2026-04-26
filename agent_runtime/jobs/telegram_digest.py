@@ -49,6 +49,8 @@ TODO(integration):
 
 from __future__ import annotations
 
+import html
+import json
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -74,6 +76,13 @@ _HYPOTHESES_LIMIT = 10
 _ASK_LIMIT = 5
 _TELEGRAM_MESSAGE_CAP = 4096
 _VALID_CALLBACK_ACTIONS: frozenset[str] = frozenset({"approve", "reject", "defer_24h"})
+
+# Owner-report (Task 04) reads sda_state[bitrix_feedback_traffic_split]
+# written by Task 02. Cron at 15:00 UTC (= 18:00 MSK).
+_TRAFFIC_SPLIT_KEY = "bitrix_feedback_traffic_split"
+_OWNER_CPA_HEALTHY_THRESHOLD = 30_000.0  # ₽ — under this and we colour green
+_OWNER_CPA_WARN_THRESHOLD = 55_000.0  # ₽ — between healthy and this is yellow
+_OWNER_NAME_TRUNC = 32
 
 
 # --- payload shapes ---------------------------------------------------------
@@ -123,6 +132,39 @@ class DigestPayload:
             and not self.hypotheses_concluded
             and self.ask_queue_count == 0
         )
+
+
+@dataclass(frozen=True)
+class OwnerCampaignBreakdown:
+    """Per-campaign breakdown for an owner-report (Task 04)."""
+
+    cid: int
+    won: int
+    cost_rub: float
+    cpa_won: float | None  # None if won == 0 and spend > 0
+
+
+@dataclass(frozen=True)
+class OwnerReportPayload:
+    """Daily 18:00 МСК owner report.
+
+    Source: ``sda_state[bitrix_feedback_traffic_split]`` (Task 02). Asymmetric
+    by design — own campaigns get per-cid breakdown (we control them, spend
+    is visible), contractor and organic stay aggregate (spend not visible to
+    us). ``contractor_by_cid`` keeps per-cid lead counts so the report can
+    name individual contractor campaigns the owner may want to investigate.
+    """
+
+    generated_at: datetime
+    snapshot_at: datetime | None
+    window_hours: int
+    own_campaigns: list[OwnerCampaignBreakdown] = field(default_factory=list)
+    contractor_won: int = 0
+    contractor_by_cid: dict[str, int] = field(default_factory=dict)
+    organic_won: int = 0
+
+    def is_empty(self) -> bool:
+        return not self.own_campaigns and self.contractor_won == 0 and self.organic_won == 0
 
 
 # --- compile ---------------------------------------------------------------
@@ -636,15 +678,269 @@ async def run(
     return result
 
 
+# --- owner_report (Task 04) -------------------------------------------------
+
+
+def _coerce_traffic_split(value: Any) -> dict[str, Any]:
+    """Normalise a sda_state.value cell to a dict (handles JSONB / str / None)."""
+    if value is None:
+        return {}
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+def _parse_snapshot_at(snapshot_iso: Any) -> datetime | None:
+    if not isinstance(snapshot_iso, str) or not snapshot_iso:
+        return None
+    try:
+        return datetime.fromisoformat(snapshot_iso.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+async def compile_owner_payload(
+    pool: AsyncConnectionPool,
+    *,
+    now: datetime | None = None,
+) -> OwnerReportPayload:
+    """Read ``sda_state[bitrix_feedback_traffic_split]`` and group it.
+
+    Empty when the key has not been written yet (bitrix_feedback never ran
+    in non-dry mode), or when the snapshot has zero activity in every bucket.
+    Caller (``run_owner_report``) handles is_empty in render to emit a
+    ``"тихая ночь"``-style message.
+    """
+    generated_at = now or datetime.now(UTC)
+    raw_value: Any = None
+
+    async with pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT value FROM sda_state WHERE key = %s",
+                (_TRAFFIC_SPLIT_KEY,),
+            )
+            row = await cur.fetchone()
+            if row is not None:
+                raw_value = row[0]
+
+    state = _coerce_traffic_split(raw_value)
+    if not state:
+        return OwnerReportPayload(
+            generated_at=generated_at,
+            snapshot_at=None,
+            window_hours=0,
+        )
+
+    own_block = state.get("own") or {}
+    own_campaigns: list[OwnerCampaignBreakdown] = []
+    for cid_str, info in own_block.items():
+        if not isinstance(info, dict):
+            continue
+        try:
+            cid = int(cid_str)
+        except (TypeError, ValueError):
+            continue
+        won_raw = info.get("won", 0)
+        cost_raw = info.get("cost_rub", 0.0)
+        cpa_raw = info.get("cpa_won")
+        own_campaigns.append(
+            OwnerCampaignBreakdown(
+                cid=cid,
+                won=int(won_raw or 0),
+                cost_rub=float(cost_raw or 0.0),
+                cpa_won=float(cpa_raw) if cpa_raw is not None else None,
+            )
+        )
+    own_campaigns.sort(key=lambda c: c.cid)
+
+    contractor_block = state.get("contractor_aggregate") or {}
+    contractor_won = int(contractor_block.get("won", 0) or 0)
+    contractor_by_cid_raw = contractor_block.get("by_campaign_id") or {}
+    contractor_by_cid = {str(k): int(v or 0) for k, v in contractor_by_cid_raw.items()}
+
+    organic_block = state.get("organic_aggregate") or {}
+    organic_won = int(organic_block.get("won", 0) or 0)
+
+    return OwnerReportPayload(
+        generated_at=generated_at,
+        snapshot_at=_parse_snapshot_at(state.get("snapshot_at")),
+        window_hours=int(state.get("window_hours", 0) or 0),
+        own_campaigns=own_campaigns,
+        contractor_won=contractor_won,
+        contractor_by_cid=contractor_by_cid,
+        organic_won=organic_won,
+    )
+
+
+def _own_status_emoji(camp: OwnerCampaignBreakdown) -> str:
+    """🟢 healthy CPA / 🟡 warning / 🔴 zero won or extreme CPA."""
+    if camp.won == 0:
+        return "🔴"
+    if camp.cpa_won is None:
+        return "🔴"
+    if camp.cpa_won <= _OWNER_CPA_HEALTHY_THRESHOLD:
+        return "🟢"
+    if camp.cpa_won <= _OWNER_CPA_WARN_THRESHOLD:
+        return "🟡"
+    return "🔴"
+
+
+def _fmt_cpa(cpa: float | None) -> str:
+    if cpa is None:
+        return "—"
+    return f"{cpa:,.0f}₽".replace(",", " ")
+
+
+def _fmt_rub(amount: float) -> str:
+    return f"{amount:,.0f}₽".replace(",", " ")
+
+
+def render_owner_report(payload: OwnerReportPayload) -> str:
+    """Telegram-HTML message for the 18:00 МСК owner digest.
+
+    Always under 4096 bytes (Telegram limit). Empty state still renders a
+    short placeholder so the cron is observable — silence is dangerous for
+    the owner.
+    """
+    lines: list[str] = []
+    ts = payload.generated_at.strftime("%d.%m %H:%M")
+    lines.append(f"<b>📊 Daily owner report — {html.escape(ts)} UTC</b>")
+    if payload.snapshot_at is not None:
+        snap_iso = payload.snapshot_at.strftime("%d.%m %H:%M")
+        lines.append(f"<i>Snapshot: {html.escape(snap_iso)} (window {payload.window_hours}h)</i>")
+    lines.append("")
+
+    if payload.is_empty():
+        lines.append("Тихий период — нет договоров и атрибуций за окно.")
+        lines.append("")
+        lines.append("<i>Если ожидался трафик — проверить bitrix_feedback cron логи.</i>")
+        return "\n".join(lines)
+
+    # --- own ---------------------------------------------------------------
+    lines.append("<b>🏠 Own (наш кабинет)</b>")
+    if not payload.own_campaigns:
+        lines.append("— нет own-кампаний с активностью")
+    else:
+        for camp in payload.own_campaigns:
+            emoji = _own_status_emoji(camp)
+            cost = _fmt_rub(camp.cost_rub)
+            cpa = _fmt_cpa(camp.cpa_won)
+            lines.append(
+                f"{emoji} <code>{camp.cid}</code>: won={camp.won}, spend={cost}, CPA={cpa}"
+            )
+    lines.append("")
+
+    # --- contractor --------------------------------------------------------
+    lines.append("<b>🏢 Подрядчик</b>")
+    if payload.contractor_won == 0:
+        lines.append("— 0 won")
+    else:
+        lines.append(f"won={payload.contractor_won}")
+        # Top-5 by lead count, abbreviated
+        sorted_cids = sorted(
+            payload.contractor_by_cid.items(),
+            key=lambda kv: kv[1],
+            reverse=True,
+        )[:5]
+        for cid_str, won in sorted_cids:
+            lines.append(f"  • <code>{html.escape(cid_str)}</code>: {won}")
+    lines.append("")
+
+    # --- organic -----------------------------------------------------------
+    lines.append(f"<b>🌱 Organic</b>: won={payload.organic_won}")
+
+    # Trim to Telegram limit defensively (never expected to hit on 5 own
+    # campaigns + 5 contractor cids, but defence-in-depth).
+    text = "\n".join(lines)
+    encoded = text.encode("utf-8")
+    if len(encoded) > _TELEGRAM_MESSAGE_CAP:
+        text = encoded[: _TELEGRAM_MESSAGE_CAP - 3].decode("utf-8", errors="ignore") + "…"
+    return text
+
+
+async def run_owner_report(
+    pool: AsyncConnectionPool,
+    *,
+    dry_run: bool = False,
+    http_client: httpx.AsyncClient | None = None,
+    settings: Settings | None = None,
+) -> dict[str, Any]:
+    """JOB_REGISTRY entry for the daily 18:00 МСК owner report.
+
+    Reads ``sda_state[bitrix_feedback_traffic_split]`` (Task 02), renders a
+    Telegram HTML message, and sends it via ``telegram_tools.send_message``.
+    ``dry_run`` suppresses the Telegram call but still returns the rendered
+    text length so a smoke check can validate the pipeline end-to-end.
+
+    Degraded-noop when DI is missing (matches form_checker, watchdog,
+    bitrix_feedback patterns).
+    """
+    if http_client is None or settings is None:
+        logger.warning(
+            "owner_report: DI missing (http_client=%s settings=%s) — degraded_noop",
+            http_client is not None,
+            settings is not None,
+        )
+        return {
+            "status": "ok",
+            "action": "degraded_noop",
+            "telegram_sent": False,
+            "dry_run": dry_run,
+        }
+
+    payload = await compile_owner_payload(pool)
+    text = render_owner_report(payload)
+
+    if dry_run:
+        return {
+            "status": "ok",
+            "telegram_sent": False,
+            "dry_run": True,
+            "text_bytes": len(text.encode("utf-8")),
+            "own_campaigns": len(payload.own_campaigns),
+            "contractor_won": payload.contractor_won,
+            "organic_won": payload.organic_won,
+        }
+
+    try:
+        await telegram_tools.send_message(http_client, settings, text=text)
+        sent = True
+    except Exception:
+        logger.exception("owner_report: send_message failed")
+        sent = False
+
+    return {
+        "status": "ok",
+        "telegram_sent": sent,
+        "dry_run": False,
+        "text_bytes": len(text.encode("utf-8")),
+        "own_campaigns": len(payload.own_campaigns),
+        "contractor_won": payload.contractor_won,
+        "organic_won": payload.organic_won,
+    }
+
+
 __all__ = [
     "ActionSummary",
     "AskSummary",
     "CallbackResult",
     "DigestPayload",
     "HypothesisSummary",
+    "OwnerCampaignBreakdown",
+    "OwnerReportPayload",
     "compile_digest",
+    "compile_owner_payload",
     "enqueue_ask",
     "handle_callback",
     "render_digest",
+    "render_owner_report",
     "run",
+    "run_owner_report",
 ]

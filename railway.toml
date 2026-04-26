@@ -118,6 +118,19 @@ curl -fsS --max-time 60 -X POST \
   "$RAILWAY_PUBLIC_URL/run/telegram_digest?dry_run=false"
 """
 
+# owner_report — Task 04 (MVP-sprint), daily 18:00 МСК (15:00 UTC).
+# Per-cid own/contractor/organic split read from
+# sda_state[bitrix_feedback_traffic_split] (Task 02). Activity-focused
+# vs telegram_digest (audit-log focused).
+[[cron]]
+name = "owner_report"
+schedule = "0 15 * * *"
+command = """
+curl -fsS --max-time 60 -X POST \
+  -H "Authorization: Bearer $SDA_INTERNAL_API_KEY" \
+  "$RAILWAY_PUBLIC_URL/run/owner_report?dry_run=false"
+"""
+
 # learner — Task 25, weekly Fri 12:00 МСК (09:00 UTC). EMA (default) or
 # Bayesian threshold updater over past 7d confirmed/rejected hypotheses.
 # Writes sda_state[learned_thresholds] for decision_engine + kill_switches
