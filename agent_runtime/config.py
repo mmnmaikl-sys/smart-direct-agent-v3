@@ -88,6 +88,9 @@ class Settings(BaseSettings):
             "https://24bankrotsttvo.ru/pages/ad/spisanie-dolgov-v4.html",
             "https://24bankrotsttvo.ru/pages/ad/yurist-v4.html",
             "https://24bankrotsttvo.ru/pages/ad/cherez-mfc-v4.html",
+            # Main 708978xxx campaigns landing (36 of 45 ads point here as
+            # of 26.04.2026). Verified via Direct API ads.get → TextAd.Href.
+            "https://24bankrotsttvo.ru/pages/ad/rf/bfl-rf.html",
         ]
     )
 

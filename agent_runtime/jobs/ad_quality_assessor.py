@@ -40,11 +40,19 @@ logger = logging.getLogger(__name__)
 
 
 _OWN_CAMPAIGNS: dict[int, str] = {
+    # Test cohort (5 personas, DailyBudget tunable via tactical_actuator).
     709353005: "rabotyaga",
     709353034: "pensioner",
     709353058: "mother",
     709353078: "mfo",
     709353099: "property",
+    # Main cohort (3 regions, WB_MAXIMUM_CLICKS strategy — production traffic).
+    # Added 26.04.2026 after owner request "прогони компанию по этим всем
+    # настройкам". ad_quality is read-only; expanding scope is safe — no
+    # mutations on main cids from this job.
+    708978456: "main-bashk",
+    708978457: "main-tat",
+    708978458: "main-udm",
 }
 
 
