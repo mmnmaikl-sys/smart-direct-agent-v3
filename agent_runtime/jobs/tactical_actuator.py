@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 import httpx
@@ -74,10 +74,50 @@ _MICRO = 1_000_000
 class Decision:
     cid: int
     name: str
-    kind: Literal["scale", "starve", "noop"]
+    kind: Literal["scale", "starve", "noop", "early_kill"]
     current_daily_rub: int
     new_daily_rub: int
     reason: str
+
+
+@dataclass(frozen=True)
+class CampaignSignals:
+    """Multi-signal snapshot for v2 decisions (last 7d aggregates).
+
+    Sourced from:
+      * daily_rub  → DirectAPI.get_campaigns DailyBudget
+      * clicks_7d  → DirectAPI.get_campaign_stats(date-7d, today) Clicks
+      * cost_7d    → DirectAPI.get_campaign_stats(...) Cost
+      * leads_7d   → sda_state[bitrix_feedback_traffic_split].own[cid].won
+                     (NB: today this is "won" not "leads" — granular leads
+                     pending Task 02 v2; "won" is conservative — actual
+                     leads are higher)
+      * bounce_pct → Metrika ym:s:bounceRate via lastDirectClickOrder
+
+    bounce_pct=None means Metrika returned no data for this cid (cold
+    campaign or attribution mismatch); decision rules requiring bounce
+    return noop in that case.
+    """
+
+    cid: int
+    name: str
+    daily_rub: int
+    clicks_7d: int
+    cost_7d: float
+    leads_7d: int
+    bounce_pct: float | None
+
+
+# v2 thresholds — derived from Deep Research 2026-04 (БФЛ benchmarks).
+_V2_SAMPLE_MIN_CLICKS = 50
+_V2_EARLY_KILL_CLICKS = 100
+_V2_EARLY_KILL_BOUNCE_PCT = 60.0
+_V2_STARVE_CPL_RUB = 1500.0
+_V2_STARVE_BOUNCE_PCT = 55.0
+_V2_SCALE_CPL_RUB = 800.0  # vc.ru benchmark = 625-684, headroom to 800
+_V2_SCALE_BOUNCE_PCT = 40.0
+_V2_SCALE_FACTOR = 1.30
+_V2_STARVE_FACTOR = 0.50
 
 
 def _ctr_pct(impressions: int, clicks: int) -> float:
@@ -142,6 +182,111 @@ def decide_action(camp: dict[str, Any]) -> Decision:
         current_daily_rub=current,
         new_daily_rub=current,
         reason=f"CTR={ctr:.1f}% in control band [2%, 5%) or already at limit",
+    )
+
+
+def decide_v2(s: CampaignSignals) -> Decision:
+    """Multi-signal composite-rule decision (replaces v1 single-CTR).
+
+    Priority order (first match wins):
+      1. EARLY_KILL_SWITCH — junk traffic burning budget, drop to floor
+      2. STARVE_RED — CPL too high + quality bad
+      3. SCALE_GREEN — CPL low + quality good + sample sufficient
+      4. NOOP — control band, insufficient sample, or missing Metrika data
+
+    The early-kill is allowed at clicks≥100 even before the regular sample
+    floor — that is the "save my budget" path from the owner's 03.04
+    incident (10K₽ slittus on autotargeting).
+    """
+    cpl: float | None = (s.cost_7d / s.leads_7d) if s.leads_7d > 0 else None
+
+    # 1. EARLY_KILL_SWITCH — owner's 03.04 pattern
+    if (
+        s.clicks_7d >= _V2_EARLY_KILL_CLICKS
+        and s.leads_7d == 0
+        and s.bounce_pct is not None
+        and s.bounce_pct > _V2_EARLY_KILL_BOUNCE_PCT
+    ):
+        return Decision(
+            cid=s.cid,
+            name=s.name,
+            kind="early_kill",
+            current_daily_rub=s.daily_rub,
+            new_daily_rub=_DAILY_MIN_RUB,
+            reason=(
+                f"EARLY_KILL: {s.clicks_7d} clicks, 0 leads, "
+                f"bounce={s.bounce_pct:.0f}% — мусорный трафик, drop to floor"
+            ),
+        )
+
+    # Sample-size guard for non-kill rules.
+    if s.clicks_7d < _V2_SAMPLE_MIN_CLICKS:
+        return Decision(
+            cid=s.cid,
+            name=s.name,
+            kind="noop",
+            current_daily_rub=s.daily_rub,
+            new_daily_rub=s.daily_rub,
+            reason=(
+                f"insufficient sample ({s.clicks_7d} < {_V2_SAMPLE_MIN_CLICKS} clicks/7d) — wait"
+            ),
+        )
+
+    # bounce data required for STARVE/SCALE.
+    if s.bounce_pct is None:
+        return Decision(
+            cid=s.cid,
+            name=s.name,
+            kind="noop",
+            current_daily_rub=s.daily_rub,
+            new_daily_rub=s.daily_rub,
+            reason="no bounce data from Metrika — cannot apply quality-based rules",
+        )
+
+    # 2. STARVE_RED — CPL high AND quality bad
+    if cpl is not None and cpl > _V2_STARVE_CPL_RUB and s.bounce_pct > _V2_STARVE_BOUNCE_PCT:
+        new = max(int(s.daily_rub * _V2_STARVE_FACTOR), _DAILY_MIN_RUB)
+        return Decision(
+            cid=s.cid,
+            name=s.name,
+            kind="starve",
+            current_daily_rub=s.daily_rub,
+            new_daily_rub=new,
+            reason=(
+                f"STARVE: CPL={cpl:.0f}₽ > {_V2_STARVE_CPL_RUB:.0f}₽, "
+                f"bounce={s.bounce_pct:.0f}% > {_V2_STARVE_BOUNCE_PCT:.0f}% — -50%"
+            ),
+        )
+
+    # 3. SCALE_GREEN — CPL low AND quality good AND sample sufficient
+    if (
+        cpl is not None
+        and cpl < _V2_SCALE_CPL_RUB
+        and s.bounce_pct < _V2_SCALE_BOUNCE_PCT
+        and s.daily_rub < _DAILY_MAX_RUB
+    ):
+        new = min(int(s.daily_rub * _V2_SCALE_FACTOR), _DAILY_MAX_RUB)
+        return Decision(
+            cid=s.cid,
+            name=s.name,
+            kind="scale",
+            current_daily_rub=s.daily_rub,
+            new_daily_rub=new,
+            reason=(
+                f"SCALE: CPL={cpl:.0f}₽ < {_V2_SCALE_CPL_RUB:.0f}₽, "
+                f"bounce={s.bounce_pct:.0f}% < {_V2_SCALE_BOUNCE_PCT:.0f}% — +30%"
+            ),
+        )
+
+    # 4. NOOP — middle ground
+    cpl_str = f"CPL={cpl:.0f}₽" if cpl is not None else "no leads"
+    return Decision(
+        cid=s.cid,
+        name=s.name,
+        kind="noop",
+        current_daily_rub=s.daily_rub,
+        new_daily_rub=s.daily_rub,
+        reason=f"control band ({cpl_str}, bounce={s.bounce_pct:.0f}%)",
     )
 
 
@@ -277,6 +422,219 @@ async def _apply_via_direct(
     return applied
 
 
+async def _collect_signals(
+    direct: DirectAPI,
+    http_client: httpx.AsyncClient,
+    settings: Settings,
+    pool: AsyncConnectionPool,
+    cids: list[int],
+) -> list[CampaignSignals]:
+    """Pull DailyBudget + 7d Direct stats + 7d Bitrix leads + 7d Metrika bounce.
+
+    Each source is wrapped in try/except so a single broken pipeline
+    doesn't blank out the whole signal set — bounce_pct=None is a valid
+    "no Metrika data" value and the decision rule handles it.
+    """
+    today = datetime.now(UTC).date().isoformat()
+    week_ago = (datetime.now(UTC).date() - timedelta(days=7)).isoformat()
+
+    # 1. DailyBudget — explicit FieldNames so we actually get the field
+    daily_by_cid: dict[int, int] = {}
+    name_by_cid: dict[int, str] = {}
+    try:
+        camps_raw = await direct._call(  # noqa: SLF001
+            "campaigns",
+            "get",
+            {
+                "SelectionCriteria": {"Ids": cids},
+                "FieldNames": ["Id", "Name", "DailyBudget"],
+            },
+        )
+        for c in camps_raw.get("Campaigns") or []:
+            cid = int(c.get("Id", 0))
+            daily_by_cid[cid] = int((c.get("DailyBudget") or {}).get("Amount", 0)) // _MICRO
+            name_by_cid[cid] = str(c.get("Name") or "")
+    except Exception:
+        logger.exception("tactical_actuator: DailyBudget fetch failed")
+
+    # 2. 7d Direct stats per cid (clicks + cost). Use existing helper from
+    # bitrix_feedback if available; here we replicate minimal contract.
+    clicks_by_cid: dict[int, int] = {}
+    cost_by_cid: dict[int, float] = {}
+    for cid in cids:
+        try:
+            tsv = await direct.get_campaign_stats(cid, week_ago, today)
+            clicks_by_cid[cid], cost_by_cid[cid] = _parse_tsv_clicks_cost(
+                tsv if isinstance(tsv, str) else ""
+            )
+        except Exception:
+            logger.warning("tactical_actuator: stats(%d) failed", cid, exc_info=True)
+            clicks_by_cid[cid] = 0
+            cost_by_cid[cid] = 0.0
+
+    # 3. 7d leads (won deals as conservative proxy) per cid from sda_state
+    leads_by_cid: dict[int, int] = await _fetch_leads_per_cid(pool)
+
+    # 4. 7d bounce per cid from Metrika via lastDirectClickOrder
+    bounce_by_cid: dict[int, float] = await _fetch_bounce_per_cid(
+        http_client, settings, week_ago, today
+    )
+
+    signals: list[CampaignSignals] = []
+    for cid in cids:
+        signals.append(
+            CampaignSignals(
+                cid=cid,
+                name=_OWN_CAMPAIGNS.get(cid, name_by_cid.get(cid, str(cid))),
+                daily_rub=daily_by_cid.get(cid, 0),
+                clicks_7d=clicks_by_cid.get(cid, 0),
+                cost_7d=cost_by_cid.get(cid, 0.0),
+                leads_7d=leads_by_cid.get(cid, 0),
+                bounce_pct=bounce_by_cid.get(cid),
+            )
+        )
+    return signals
+
+
+def _parse_tsv_clicks_cost(tsv: str) -> tuple[int, float]:
+    """Sum Clicks and Cost (micro-RUB → RUB) from CAMPAIGN_PERFORMANCE_REPORT TSV."""
+    if not tsv:
+        return (0, 0.0)
+    lines = [ln for ln in tsv.splitlines() if ln.strip()]
+    header_idx = -1
+    for idx, line in enumerate(lines):
+        if "CampaignId" in line and "Cost" in line:
+            header_idx = idx
+            break
+    if header_idx < 0:
+        return (0, 0.0)
+    cols = lines[header_idx].split("\t")
+    try:
+        ci_clicks = cols.index("Clicks")
+    except ValueError:
+        ci_clicks = -1
+    try:
+        ci_cost = cols.index("Cost")
+    except ValueError:
+        ci_cost = -1
+    total_clicks = 0
+    total_cost_micro = 0
+    for ln in lines[header_idx + 1 :]:
+        c = ln.split("\t")
+        if not c or c[0].startswith("Total") or len(c) <= max(ci_clicks, ci_cost):
+            continue
+        if ci_clicks >= 0:
+            try:
+                total_clicks += int(c[ci_clicks])
+            except (ValueError, IndexError):
+                pass
+        if ci_cost >= 0:
+            try:
+                total_cost_micro += int(c[ci_cost])
+            except (ValueError, IndexError):
+                pass
+    return (total_clicks, total_cost_micro / _MICRO)
+
+
+async def _fetch_leads_per_cid(pool: AsyncConnectionPool) -> dict[int, int]:
+    """Read sda_state[bitrix_feedback_traffic_split].own[cid].won."""
+    try:
+        async with pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT value FROM sda_state WHERE key = %s",
+                    ("bitrix_feedback_traffic_split",),
+                )
+                row = await cur.fetchone()
+    except Exception:
+        logger.warning("tactical_actuator: leads fetch failed", exc_info=True)
+        return {}
+    if not row:
+        return {}
+    raw = row[0]
+    if isinstance(raw, str):
+        import json
+
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            return {}
+    elif isinstance(raw, dict):
+        data = raw
+    else:
+        return {}
+    out: dict[int, int] = {}
+    for cid_str, info in (data.get("own") or {}).items():
+        try:
+            cid = int(cid_str)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(info, dict):
+            out[cid] = int(info.get("won", 0) or 0)
+    return out
+
+
+async def _fetch_bounce_per_cid(
+    http_client: httpx.AsyncClient,
+    settings: Settings,
+    date1: str,
+    date2: str,
+) -> dict[int, float]:
+    """Direct call to Metrika using the working dimension `lastDirectClickOrder`.
+
+    The existing metrika.get_bounce_by_campaign uses ym:s:lastSignDirectOrderID
+    which Metrika rejects with error 4001. Until that helper is fixed, we
+    inline a minimal call here.
+    """
+    counter = getattr(settings, "METRIKA_COUNTER_ID", "")
+    token_obj = getattr(settings, "METRIKA_OAUTH_TOKEN", None)
+    if token_obj is None:
+        token_str = ""
+    elif hasattr(token_obj, "get_secret_value"):
+        token_str = token_obj.get_secret_value()
+    else:
+        token_str = str(token_obj)
+    if not counter or not token_str:
+        logger.warning("tactical_actuator: Metrika settings missing")
+        return {}
+    params = {
+        "ids": str(counter),
+        "metrics": "ym:s:bounceRate",
+        "dimensions": "ym:s:lastDirectClickOrder",
+        "date1": date1,
+        "date2": date2,
+        "limit": "500",
+        "accuracy": "full",
+    }
+    try:
+        resp = await http_client.get(
+            "https://api-metrika.yandex.net/stat/v1/data",
+            params=params,
+            headers={"Authorization": f"OAuth {token_str}"},
+            timeout=30,
+        )
+        if resp.status_code != 200:
+            logger.warning("tactical_actuator: Metrika %d %s", resp.status_code, resp.text[:200])
+            return {}
+        data = resp.json()
+    except Exception:
+        logger.exception("tactical_actuator: Metrika request failed")
+        return {}
+    out: dict[int, float] = {}
+    for row in data.get("data") or []:
+        dims = row.get("dimensions") or []
+        m = row.get("metrics") or []
+        if not dims or not m:
+            continue
+        raw_id = dims[0].get("id")
+        try:
+            cid = int(raw_id)
+        except (TypeError, ValueError):
+            continue
+        out[cid] = float(m[0])
+    return out
+
+
 async def run(
     pool: AsyncConnectionPool,
     *,
@@ -285,7 +643,12 @@ async def run(
     settings: Settings | None = None,
     direct: DirectAPI | None = None,
 ) -> dict[str, Any]:
-    """JOB_REGISTRY entrypoint. Cron `0 */4 * * *` UTC."""
+    """JOB_REGISTRY entrypoint. Cron `0 */4 * * *` UTC.
+
+    v2: multi-signal composite rules (Direct stats 7d + Bitrix leads + Metrika
+    bounce). See decide_v2 for rules. v1 decide_action kept for backward
+    compat (some tests still reference it).
+    """
     if direct is None or http_client is None or settings is None:
         logger.warning(
             "tactical_actuator: DI missing (direct=%s http=%s settings=%s) — degraded_noop",
@@ -303,12 +666,17 @@ async def run(
 
     cids = list(_OWN_CAMPAIGNS.keys())
     try:
-        camps = await direct.get_campaigns(cids)
+        signals = await _collect_signals(direct, http_client, settings, pool, cids)
     except Exception as exc:
-        logger.exception("tactical_actuator: get_campaigns failed")
-        return {"status": "error", "step": "get_campaigns", "detail": str(exc), "dry_run": dry_run}
+        logger.exception("tactical_actuator: signal collection failed")
+        return {
+            "status": "error",
+            "step": "collect_signals",
+            "detail": str(exc),
+            "dry_run": dry_run,
+        }
 
-    decisions = [decide_action(c) for c in camps]
+    decisions = [decide_v2(s) for s in signals]
     actionable = [d for d in decisions if d.kind != "noop"]
 
     others_current_total = sum(d.current_daily_rub for d in decisions if d.kind == "noop")
