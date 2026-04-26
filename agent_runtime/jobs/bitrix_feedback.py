@@ -59,6 +59,7 @@ from agent_runtime.config import Settings
 from agent_runtime.db import insert_audit_log
 from agent_runtime.tools import bitrix as bitrix_tools
 from agent_runtime.tools import telegram as telegram_tools
+from agent_runtime.tools import traffic_source
 from agent_runtime.tools.direct_api import DirectAPI
 from agent_runtime.trust_levels import TrustLevel, get_trust_level
 
@@ -69,6 +70,7 @@ _WON_STAGE_ID = "C45:WON"
 _WON_WINDOW_DAYS = 7
 _BASELINE_WINDOW_DAYS = 30
 _CPA_HISTORY_KEY = "bitrix_feedback_cpa_history"
+_TRAFFIC_SPLIT_KEY = "bitrix_feedback_traffic_split"
 _MUTATIONS_KEY = "mutations_this_week"
 _CPA_HISTORY_MAX_SNAPSHOTS = 14
 _MICRO_TO_RUB = 1_000_000
@@ -401,6 +403,61 @@ def _merge_cpa_history(
     return {"campaigns": campaigns, "last_updated": captured_at}
 
 
+# --------------------------------------------------------------- traffic split
+
+
+def _compute_traffic_split(
+    *,
+    own_won_by_cid: dict[int, int],
+    own_spend_by_cid: dict[int, float],
+    contractor_won_by_cid: dict[int, int],
+    organic_won: int,
+    captured_at: str,
+    window_hours: int = 7 * 24,
+) -> dict[str, Any]:
+    """Build the ``sda_state[bitrix_feedback_traffic_split]`` snapshot.
+
+    Pure function — easy to test, no I/O. Asymmetry between the three
+    buckets is intentional: ``own`` campaigns are in our Direct cabinet
+    so per-cid spend (and CPA) is meaningful; ``contractor`` campaigns
+    are in someone else's cabinet so we only know lead/won counts via
+    Bitrix; ``organic`` lacks UTM_CAMPAIGN entirely so only an aggregate
+    count makes sense.
+
+    ``cpa_won`` is ``None`` when ``won == 0`` to avoid silent
+    division-by-zero — callers (owner-report) must render this as `—`,
+    not as a zero CPA.
+    """
+    own_block: dict[str, Any] = {}
+    for cid, won in own_won_by_cid.items():
+        spend = float(own_spend_by_cid.get(cid, 0.0))
+        cpa_won: float | None
+        if won > 0:
+            cpa_won = spend / won
+        elif spend == 0.0:
+            cpa_won = 0.0
+        else:
+            cpa_won = None
+        own_block[str(cid)] = {
+            "won": int(won),
+            "cost_rub": spend,
+            "cpa_won": cpa_won,
+        }
+
+    contractor_block = {
+        "won": int(sum(contractor_won_by_cid.values())),
+        "by_campaign_id": {str(c): int(w) for c, w in contractor_won_by_cid.items()},
+    }
+
+    return {
+        "snapshot_at": captured_at,
+        "window_hours": int(window_hours),
+        "own": own_block,
+        "contractor_aggregate": contractor_block,
+        "organic_aggregate": {"won": int(organic_won)},
+    }
+
+
 # --------------------------------------------------------------- alerting
 
 
@@ -620,6 +677,45 @@ async def run(
             await _upsert_sda_state(pool, _CPA_HISTORY_KEY, merged_history)
         except Exception:
             logger.exception("bitrix_feedback: cpa_history upsert failed")
+
+    # Step 6.5 — traffic-source split snapshot (own/contractor/organic).
+    # Read-only on Direct, writes only to sda_state — runs irrespective of
+    # trust level because owner-report (Task 04) and zero_leads_alarm
+    # (Task 08b) need this data even in shadow mode. Suppressed only by
+    # dry_run.
+    if not dry_run:
+        try:
+            organic_won = sum(
+                1
+                for d in deals
+                if isinstance(d, dict) and _extract_campaign_id(d.get("UTM_CAMPAIGN")) is None
+            )
+            own_won_by_cid: dict[int, int] = {}
+            contractor_won_by_cid: dict[int, int] = {}
+            for cid, won_count in won_by_campaign.items():
+                source = await traffic_source.classify(cid, api=direct)
+                if source == "own":
+                    own_won_by_cid[cid] = won_count
+                elif source == "contractor":
+                    contractor_won_by_cid[cid] = won_count
+                # source == "organic" is impossible: cid is non-None here
+            split_payload = _compute_traffic_split(
+                own_won_by_cid=own_won_by_cid,
+                own_spend_by_cid={c: spend_per_campaign.get(c, 0.0) for c in own_won_by_cid},
+                contractor_won_by_cid=contractor_won_by_cid,
+                organic_won=organic_won,
+                captured_at=now_iso,
+                window_hours=_WON_WINDOW_DAYS * 24,
+            )
+            await _upsert_sda_state(pool, _TRAFFIC_SPLIT_KEY, split_payload)
+            logger.info(
+                "bitrix_feedback: traffic_split own=%d contractor=%d organic=%d",
+                len(own_won_by_cid),
+                len(contractor_won_by_cid),
+                organic_won,
+            )
+        except Exception:
+            logger.exception("bitrix_feedback: traffic_split compute/upsert failed")
 
     # Step 7 — weekly reset if Monday 11:00-11:30 MSK.
     mutations_reset = False
