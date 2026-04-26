@@ -85,6 +85,20 @@ jobs:
             echo "landing_critic: skipped (DOW=$DOW hour=$HOUR min=$MIN, runs Mon 13:00 UTC)"
           fi
 
+      - name: metrika_health_check (daily at 13:30 UTC — 16:30 МСК, broken-tracking alert)
+        env:
+          BEARER: ${{ secrets.SDA_INTERNAL_API_KEY }}
+        run: |
+          MIN=$(date -u +%M)
+          HOUR=$(date -u +%H)
+          if [ "$MIN" = "30" ] && [ "$HOUR" = "13" ]; then
+            curl -fsS --max-time 60 -X POST -H "Authorization: Bearer $BEARER" \
+              "https://smart-direct-agent-v3-production.up.railway.app/run/metrika_health_check?dry_run=false" \
+              | python3 -c "import sys,json; r=json.load(sys.stdin); print('metrika_health:', r.get('result',{}))"
+          else
+            echo "metrika_health: skipped (hour=$HOUR min=$MIN, runs daily 13:30 UTC)"
+          fi
+
       - name: ad_quality_assessor (daily at 12:10 UTC — 15:10 МСК, ФЗ-38 + quality)
         env:
           BEARER: ${{ secrets.SDA_INTERNAL_API_KEY }}
