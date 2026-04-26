@@ -146,7 +146,7 @@ PROTECTED_CAMPAIGN_NAME_PATTERNS: frozenset[str] = frozenset(
         "бфл башкортостан",
         "бфл татарстан",
         "бфл удмуртия",
-        "24bankrotstvo",
+        "24bankrotsttvo",
         "24банкротство",
     }
 )
