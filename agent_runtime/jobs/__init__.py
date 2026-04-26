@@ -45,6 +45,11 @@ class JobContext:
 
     settings: Settings | None = None
     http_client: httpx.AsyncClient | None = None
+    # bitrix_client is an alias for http_client — bitrix tools use the same
+    # httpx.AsyncClient as Telegram. Kept as a separate field so jobs that
+    # explicitly want a "Bitrix client" parameter (e.g. bitrix_feedback) are
+    # selectively-DI'd by dispatch_job's signature inspection.
+    bitrix_client: httpx.AsyncClient | None = None
     direct: DirectAPI | None = None
     llm_client: LLMClient | None = None
     tool_registry: ToolRegistry | None = None
@@ -112,6 +117,7 @@ JOB_REGISTRY: dict[str, JobCallable] = {
 _DI_FIELDS: tuple[str, ...] = (
     "direct",
     "http_client",
+    "bitrix_client",
     "settings",
     "llm_client",
     "tool_registry",

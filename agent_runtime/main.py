@@ -103,6 +103,7 @@ def _make_lifespan(settings: Settings):
         app.state.job_ctx = JobContext(
             settings=settings,
             http_client=app.state.http_client,
+            bitrix_client=app.state.http_client,
             direct=direct,
             llm_client=llm_client,
             tool_registry=tool_registry,
