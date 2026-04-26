@@ -55,6 +55,21 @@ jobs:
             echo "strategic_advisor: skipped (hour=$HOUR min=$MIN, runs only at :00 every 4h)"
           fi
 
+      - name: landing_critic (weekly Mon at 13:00 UTC — 16:00 МСК)
+        env:
+          BEARER: ${{ secrets.SDA_INTERNAL_API_KEY }}
+        run: |
+          MIN=$(date -u +%M)
+          HOUR=$(date -u +%H)
+          DOW=$(date -u +%u)
+          if [ "$DOW" = "1" ] && [ "$HOUR" = "13" ] && [ "$MIN" = "00" ]; then
+            curl -fsS --max-time 60 -X POST -H "Authorization: Bearer $BEARER" \
+              "https://smart-direct-agent-v3-production.up.railway.app/run/landing_critic?dry_run=false" \
+              | python3 -c "import sys,json; r=json.load(sys.stdin); print('landing_critic:', r.get('result',{}).get('verdicts'))"
+          else
+            echo "landing_critic: skipped (DOW=$DOW hour=$HOUR min=$MIN, runs Mon 13:00 UTC)"
+          fi
+
       - name: ad_quality_assessor (daily at 12:10 UTC — 15:10 МСК, ФЗ-38 + quality)
         env:
           BEARER: ${{ secrets.SDA_INTERNAL_API_KEY }}
