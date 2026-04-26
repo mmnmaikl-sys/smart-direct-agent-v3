@@ -62,6 +62,7 @@ class JobContext:
 # ruff's E402 module-level-import ordering rule which doesn't account
 # for forward-reference dataclasses defined above.
 from agent_runtime.jobs import (  # noqa: E402
+    ad_quality_assessor,
     audience_sync,
     audit_retention,
     auto_resume,
@@ -90,6 +91,7 @@ from agent_runtime.jobs import (  # noqa: E402
 JobCallable = Callable[..., Awaitable[dict[str, Any]]]
 
 JOB_REGISTRY: dict[str, JobCallable] = {
+    "ad_quality_assessor": ad_quality_assessor.run,
     "audit_retention": audit_retention.run,
     "audience_sync": audience_sync.run,
     "auto_resume": auto_resume.run,
