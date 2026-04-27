@@ -107,6 +107,19 @@ curl -fsS --max-time 60 -X POST \
   "$RAILWAY_PUBLIC_URL/run/health_checker?dry_run=false"
 """
 
+# metrika_health_check — every 6h. Detects "tracking broken" pattern
+# (visits>=10 AND goals=0 over 7d window). Discovered 27.04.2026 after
+# /lp/quick/ test launched: clicks landed, but goals didn't fire and
+# nobody alerted — owner caught it manually. This cron closes that gap.
+[[cron]]
+name = "metrika_health_check"
+schedule = "30 */6 * * *"
+command = """
+curl -fsS --max-time 60 -X POST \
+  -H "Authorization: Bearer $SDA_INTERNAL_API_KEY" \
+  "$RAILWAY_PUBLIC_URL/run/metrika_health_check?dry_run=false"
+"""
+
 # telegram_digest — Task 23, daily 09:00 МСК (06:00 UTC). Rolling 24h
 # digest of actions/hypotheses/asks + empty-state "Тихая ночь" footer.
 [[cron]]
